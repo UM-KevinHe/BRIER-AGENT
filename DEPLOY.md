@@ -60,6 +60,29 @@ docker compose --profile local up
 The first start downloads the model weights (cached on the host at `HF_CACHE_DIR` so a
 restart does not re-fetch them), then the UI comes up at http://localhost:7860.
 
+## Option C: run natively (no Docker)
+
+If you do not have Docker, or already have R and the BRIER package on the machine, run the
+agent directly. This uses an external API for the model (a local 7B still needs a GPU and
+vLLM), so it suits a laptop without a GPU.
+
+Prerequisites: Python 3.10+, and R (>= 4.0) with the BRIER package installed
+(`remotes::install_github("UM-KevinHe/BRIER")`).
+
+```
+pip install -r requirements.txt
+python -m brier_agent.check_env          # confirm Python, R, BRIER, and deps are present
+
+export BRIER_MODEL_ENDPOINT=https://api.openai.com/v1   # or Together, Groq, a remote vLLM
+export BRIER_MODEL_NAME=gpt-4o-mini
+export BRIER_API_KEY=sk-...your-key...
+export BRIER_MCP_SERVER=$PWD/mcp/server.py
+
+python app.py                            # the UI at http://localhost:7860
+# or a one-shot query:
+python -m brier_agent "your request here"
+```
+
 ## The CLI instead of the UI
 
 The same image runs a one-shot command-line query:

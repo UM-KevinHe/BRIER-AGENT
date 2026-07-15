@@ -33,6 +33,13 @@ remote server over SSH.
 | **MCP + Claude/Codex, local** | R + BRIER + one setup script | your Claude or Codex subscription | file paths + summaries only | day-to-day use on your own machine |
 | **MCP + Claude/Codex, remote** | same, on the server (over SSH) | your Claude or Codex subscription | data and compute stay on the server | data on an HPC or lab server |
 
+Both agent paths below use Docker. If `docker` is not installed (`command not found`),
+install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS, Windows,
+Linux) or a lighter alternative ([OrbStack](https://orbstack.dev), or colima via Homebrew:
+`brew install colima docker docker-compose && colima start`), then start the engine before
+running `docker compose`. Prefer not to use Docker at all? The agent also runs natively;
+see [`DEPLOY.md`](DEPLOY.md).
+
 ## Run the agent with a local model (Docker self-host)
 
 For PHI workflows, networks that block outbound LLM calls, or anyone who wants the whole
