@@ -66,6 +66,8 @@ MODULES = [
     "brier_agent.tests.test_loop_helpers",
     # The environment preflight (python -m brier_agent.check_env): pure-logic checks.
     "brier_agent.tests.test_check_env",
+    # The endpoint-probe helper (targets a refused localhost port; no internet).
+    "brier_agent.tests.test_llm_client",
     # Drives the stub LLM against a fake MCP server (no network, no BRIER): its
     # tests are async, hence the coroutine handling below.
     "brier_agent.tests.test_preprocessing_only",

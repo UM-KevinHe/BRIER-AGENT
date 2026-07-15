@@ -12,3 +12,11 @@ openai>=1.0.0
 
 # Chat UI
 gradio>=4.44,<5.0
+# gradio 4.44 imports HfFolder from huggingface_hub, which was removed in hf-hub 1.0.
+# Left unpinned, a clean install pulls hf-hub 1.x and the app crashes on import; pin to the
+# 0.2x line gradio 4.44 was built against.
+huggingface_hub>=0.24,<0.26
+# gradio 4.44 uses Starlette's 2-argument TemplateResponse(name, context); a newer fastapi
+# pulls a Starlette that changed that signature, so the page render throws
+# "unhashable type: dict". Cap fastapi so its Starlette still supports the old form.
+fastapi>=0.110,<0.113

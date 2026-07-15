@@ -89,6 +89,19 @@ Both agent paths are covered in full, with the CLI and troubleshooting, in
 python -m brier_agent.check_env
 ```
 
+## Switching between backends
+
+The agent talks to the model over an OpenAI-compatible endpoint, so the two backends are
+interchangeable at run time: point it at whichever you want in the UI's "Model & connection"
+panel, or via the `BRIER_MODEL_ENDPOINT` / `BRIER_MODEL_NAME` / `BRIER_API_KEY` variables.
+The two are not symmetric in what they require, though. An external API needs no local
+deployment: a key and internet, and it is reachable immediately. The local 7B must be
+deployed first (the vLLM service on an NVIDIA GPU); once it is running you can switch to it,
+or back to an external API, freely in either direction. Where there is no GPU (for example a
+Mac) the local 7B cannot be deployed at all, so only external endpoints are available there.
+The "Test connection" button in that panel reports whether the current endpoint is reachable
+and which model it serves.
+
 ## Use the BRIER tools in Claude or Codex (local data)
 
 If you already use Claude Desktop, Claude Code, or OpenAI Codex, you can drive the BRIER

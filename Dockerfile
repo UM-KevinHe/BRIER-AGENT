@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # --- BRIER (from GitHub; not on CRAN). dependencies=TRUE pulls Matrix / data.table /
 #     survival / jsonlite automatically. Override BRIER_REF to pin a commit. ---------
 ARG BRIER_REF=main
-RUN R -e "install.packages('remotes', repos='https://cloud.r-project.org')" \
+RUN R -e "install.packages(c('remotes', 'data.table'), repos='https://cloud.r-project.org')" \
     && R -e "remotes::install_github('UM-KevinHe/BRIER', ref='${BRIER_REF}', dependencies=TRUE, upgrade='never')" \
     && R -e "stopifnot('BRIER' %in% rownames(installed.packages()))"
 

@@ -84,3 +84,51 @@ class LLMClient:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
         return client.chat.completions.create(**kwargs)
+
+
+def probe_endpoint(
+    endpoint: str,
+    model: str = "",
+    api_key: str = "",
+    timeout: float = 10.0,
+) -> str:
+    """Check an OpenAI-compatible endpoint and report status as a string.
+
+    Does the exact call the agent makes: a 1-token chat completion. This confirms
+    the endpoint, the key, AND the model name in one shot, and is robust across
+    providers (unlike ``/models``, which some providers, e.g. Together, restrict or
+    return in a non-standard shape). Costs about one token. Never raises: a failure
+    is classified and returned as a message the UI can show directly.
+    """
+    try:
+        from openai import OpenAI
+    except ImportError:  # pragma: no cover
+        return "openai SDK not installed."
+    if not endpoint:
+        return "No endpoint set."
+    if not model:
+        return "No model name set; enter the model, then test."
+    try:
+        client = OpenAI(base_url=endpoint, api_key=(api_key or "EMPTY"),
+                        timeout=timeout, max_retries=0)
+        client.chat.completions.create(
+            model=model,
+            messages=[{"role": "user", "content": "ping"}],
+            max_tokens=1,
+            temperature=0,
+        )
+    except Exception as e:
+        name = type(e).__name__
+        msg = str(e)
+        low = msg.lower()
+        if name in ("AuthenticationError", "PermissionDeniedError") or \
+                " 401" in msg or " 403" in msg:
+            return f"Reached {endpoint}, but the key was rejected. Check the API key."
+        if name == "NotFoundError" or ("model" in low and
+                                       ("not found" in low or "does not exist" in low)):
+            return (f"Reached {endpoint}, but model '{model}' was not found. "
+                    "Check the model name.")
+        if name == "APIConnectionError" or "connection" in low:
+            return f"Could not connect to {endpoint}: {msg}"
+        return f"Test failed ({name}): {msg}"
+    return f"Connected: {endpoint} served model '{model}' successfully. Ready to use."

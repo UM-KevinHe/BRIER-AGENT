@@ -27,3 +27,18 @@ scratchpad/
 # The model is never baked in
 hf-cache/
 data/
+
+# Private research / dev files: not part of the product image (mirror the gitignore
+# private set). These are root-relative, so the PUBLIC mcp/docs/CLAUDE.md shim is kept.
+CLAUDE.md
+PLANNING.md
+PREP_AUTO_DESIGN.md
+CONCEPTS.md
+CONTRACT.md
+TECH_NOTES.*
+ref.md
+run_tests.sh
+publish.sh
+benchmark/
+manual/
+.claude/

@@ -34,6 +34,41 @@ def test_rscript_path_prefers_env(monkeypatch=None):
             os.environ["BRIER_RSCRIPT"] = old
 
 
+def test_status_counts_required_and_optional():
+    # status() tallies missing required vs missing optional across groups, no R needed.
+    groups = [("G", [ce.Check(True, True, "ok"),
+                     ce.Check(False, True, "missing-required"),
+                     ce.Check(False, False, "missing-optional")])]
+    assert ce.status(groups) == (1, 1)
+
+
+def test_format_renders_lines_and_a_state_appropriate_summary():
+    # All present -> the summary is the OK line.
+    txt = ce._format([("Python", [ce.Check(True, True, "ok")])])
+    assert "BRIER-Agent environment check" in txt
+    assert "Python" in txt and "[ OK ]" in txt
+    assert "OK: every check passed." in txt
+    # A missing REQUIRED item flips the summary to FAIL.
+    assert "FAIL:" in ce._format([("Python", [ce.Check(False, True, "x", "install it")])])
+    # Only optional missing -> still OK, but the caveat line, not FAIL.
+    opt = ce._format([("Python", [ce.Check(False, False, "x", "install it")])])
+    assert "FAIL:" not in opt and "optional/recommended" in opt
+
+
+def test_install_recommended_without_rscript_is_a_clear_message():
+    # No R available -> a clear message, not a crash (the no-Rscript branch, no R needed).
+    old = os.environ.get("BRIER_RSCRIPT")
+    try:
+        os.environ["BRIER_RSCRIPT"] = "/definitely/not/a/real/Rscript"
+        msg = ce.install_recommended()
+        assert "Rscript not found" in msg
+    finally:
+        if old is None:
+            os.environ.pop("BRIER_RSCRIPT", None)
+        else:
+            os.environ["BRIER_RSCRIPT"] = old
+
+
 def test_required_r_packages_are_the_hard_loads():
     # Guard against drift: these are the packages the R scripts library() unconditionally
     # (plus survival, which ships with BRIER). If a tool starts hard-loading another, add

@@ -235,6 +235,24 @@ def reset_chat():
     return [], "", None
 
 
+def _env_check():
+    """Run the environment preflight and return it as a fenced text block."""
+    from brier_agent import check_env
+    return "```text\n" + check_env.report_text() + "\n```"
+
+
+def _install_recommended():
+    """Install the missing recommended/optional R packages, then show the result."""
+    from brier_agent import check_env
+    return "```text\n" + check_env.install_recommended() + "\n```"
+
+
+def _test_connection(endpoint, model, api_key):
+    """Check the current model endpoint is reachable and serving the named model."""
+    from brier_agent.llm_client import probe_endpoint
+    return probe_endpoint(endpoint, model, api_key)
+
+
 # --------------------------------------------------------------------------
 # Layout
 # --------------------------------------------------------------------------
@@ -261,6 +279,21 @@ with gr.Blocks(title="BRIER-Agent", theme=gr.themes.Soft()) as demo:
                 type="password",
                 placeholder="sk-...",
             )
+        test_conn_btn = gr.Button("Test connection")
+        conn_out = gr.Markdown()
+
+    with gr.Accordion("Environment check", open=False):
+        gr.Markdown(
+            "Verify Python, R, the BRIER package, and the tool dependencies are in "
+            "place. Required items missing block a run; recommended/optional ones only "
+            "disable a feature. Installing the recommended/optional R packages can take a "
+            "few minutes (they compile), and in a Docker container it lasts only for this "
+            "container; the permanent fix is to add them to the image."
+        )
+        with gr.Row():
+            env_btn = gr.Button("Check environment")
+            install_btn = gr.Button("Install recommended/optional R packages")
+        env_out = gr.Markdown()
 
     with gr.Row():
         # ---- Left: data ----
@@ -308,6 +341,13 @@ with gr.Blocks(title="BRIER-Agent", theme=gr.themes.Soft()) as demo:
     send_btn.click(chat_submit, inputs=inputs, outputs=outputs)
     msg_in.submit(chat_submit, inputs=inputs, outputs=outputs)
     clear_btn.click(reset_chat, inputs=None, outputs=outputs)
+    env_btn.click(_env_check, inputs=None, outputs=env_out)
+    install_btn.click(_install_recommended, inputs=None, outputs=env_out)
+    test_conn_btn.click(
+        _test_connection,
+        inputs=[endpoint_in, model_in, api_key_in],
+        outputs=conn_out,
+    )
 
 
 # --------------------------------------------------------------------------

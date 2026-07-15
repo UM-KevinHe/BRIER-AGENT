@@ -101,26 +101,10 @@ def _check_r() -> list[Check]:
                       "install R, or set BRIER_RSCRIPT to its Rscript")]
     out = [Check(True, True, f"Rscript ({rscript})")]
 
-    # One R call reports every package as "name:0/1". Keeping it to a single
-    # subprocess makes the checker fast and avoids N R startups.
-    pkgs = _R_REQUIRED + _R_RECOMMENDED + _R_OPTIONAL
-    vec = ",".join(f"'{p}'" for p in pkgs)
-    prog = (
-        f"for (p in c({vec})) "
-        "cat(p, ':', as.integer(requireNamespace(p, quietly=TRUE)), '\\n', sep='')"
-    )
-    try:
-        res = subprocess.run([rscript, "-e", prog],
-                             capture_output=True, text=True, timeout=120)
-    except (subprocess.TimeoutExpired, OSError) as e:
+    present = _r_probe(rscript, _R_REQUIRED + _R_RECOMMENDED + _R_OPTIONAL)
+    if present is None:
         return out + [Check(False, True, "R package probe",
-                            f"Rscript failed to run: {e}")]
-
-    present: dict[str, bool] = {}
-    for line in res.stdout.splitlines():
-        if ":" in line:
-            name, _, val = line.partition(":")
-            present[name.strip()] = val.strip() == "1"
+                            "Rscript failed to run the package probe")]
 
     def tier(names: list[str], required: bool, note: str) -> None:
         for p in names:
@@ -136,42 +120,127 @@ def _check_r() -> list[Check]:
     return out
 
 
+def _r_probe(rscript: str, names: list[str]):
+    """Return {package: present?} for each name, via one Rscript call. None on failure."""
+    vec = ",".join(f"'{p}'" for p in names)
+    prog = (f"for (p in c({vec})) "
+            "cat(p, ':', as.integer(requireNamespace(p, quietly=TRUE)), '\\n', sep='')")
+    try:
+        res = subprocess.run([rscript, "-e", prog],
+                             capture_output=True, text=True, timeout=120)
+    except (subprocess.TimeoutExpired, OSError):
+        return None
+    present: dict[str, bool] = {}
+    for line in res.stdout.splitlines():
+        if ":" in line:
+            name, _, val = line.partition(":")
+            present[name.strip()] = val.strip() == "1"
+    return present
+
+
 def _check_server() -> list[Check]:
     path = os.environ.get("BRIER_MCP_SERVER") or _default_mcp_server()
     return [Check(os.path.isfile(path), True, f"MCP server file ({path})",
                   "set BRIER_MCP_SERVER to mcp/server.py")]
 
 
-def run() -> int:
-    print("BRIER-Agent environment check\n")
-    groups = [
+def collect() -> list:
+    """Run every check and return grouped results (no printing).
+
+    The UI-facing entry point: a caller can render the returned Check objects
+    however it likes. Runs one Rscript subprocess for the R-package probe.
+    """
+    return [
         ("Python", _check_python()),
         ("R + BRIER", _check_r()),
         ("Bundled server", _check_server()),
     ]
-    missing_required = 0
-    missing_optional = 0
-    for title, checks in groups:
-        print(title)
-        for c in checks:
-            print(c.line())
-            if not c.ok:
-                if c.required:
-                    missing_required += 1
-                else:
-                    missing_optional += 1
-        print()
 
-    if missing_required:
-        print(f"FAIL: {missing_required} required check(s) missing. "
-              "Install the items marked [MISS] above.")
-        return 1
-    if missing_optional:
-        print(f"OK (with {missing_optional} optional/recommended item(s) missing, "
-              "marked [WARN]). The agent will run; those features are unavailable.")
-        return 0
-    print("OK: every check passed.")
-    return 0
+
+def status(groups=None) -> tuple:
+    """Return (missing_required, missing_optional) across all groups."""
+    if groups is None:
+        groups = collect()
+    mr = sum(1 for _, cs in groups for c in cs if not c.ok and c.required)
+    mo = sum(1 for _, cs in groups for c in cs if not c.ok and not c.required)
+    return mr, mo
+
+
+def _format(groups) -> str:
+    out = ["BRIER-Agent environment check", ""]
+    for title, checks in groups:
+        out.append(title)
+        out += [c.line() for c in checks]
+        out.append("")
+    mr, mo = status(groups)
+    if mr:
+        out.append(f"FAIL: {mr} required check(s) missing. "
+                   "Install the items marked [MISS] above.")
+    elif mo:
+        out.append(f"OK (with {mo} optional/recommended item(s) missing, marked "
+                   "[WARN]). The agent will run; those features are unavailable.")
+    else:
+        out.append("OK: every check passed.")
+    return "\n".join(out)
+
+
+def report_text() -> str:
+    """The full environment check as a single text block (for the UI / a log)."""
+    return _format(collect())
+
+
+def install_recommended() -> str:
+    """Install the recommended + optional R packages that are currently MISSING.
+
+    Installs only from the fixed recommended/optional lists (no arbitrary input).
+    Does NOT touch required packages or BRIER: a missing required package is a real
+    setup problem, and BRIER installs from GitHub, not CRAN. Returns a text report.
+
+    Note: inside a container this installs into the running container's R library,
+    which is lost when the container is recreated; the permanent fix is the Dockerfile.
+    """
+    rscript = _rscript_path()
+    if rscript is None:
+        return ("Rscript not found, so R packages cannot be installed. "
+                "Install R (>= 4.0), or set BRIER_RSCRIPT to its Rscript.")
+
+    candidates = _R_RECOMMENDED + _R_OPTIONAL
+    before = _r_probe(rscript, candidates)
+    if before is None:
+        return "Could not probe R packages (Rscript failed)."
+    missing = [p for p in candidates if not before.get(p, False)]
+    if not missing:
+        return "All recommended and optional R packages are already installed."
+
+    vec = ",".join(f"'{p}'" for p in missing)
+    prog = (f"install.packages(c({vec}), repos='https://cloud.r-project.org')")
+    try:
+        # Package compilation can be slow; give it room.
+        subprocess.run([rscript, "-e", prog], capture_output=True, text=True,
+                       timeout=1800)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return f"Install attempt failed to run: {e}"
+
+    after = _r_probe(rscript, missing) or {}
+    ok = [p for p in missing if after.get(p, False)]
+    still = [p for p in missing if not after.get(p, False)]
+    lines = [f"Attempted to install {len(missing)} package(s): {', '.join(missing)}.", ""]
+    if ok:
+        lines.append(f"Installed: {', '.join(ok)}.")
+    if still:
+        lines.append(f"Still missing: {', '.join(still)} (may need system libraries; "
+                     "see each package's install notes).")
+    if not still:
+        lines.append("All recommended/optional packages are now present.")
+    return "\n".join(lines)
+
+
+def run() -> int:
+    """CLI entry: print the report, exit 1 iff a REQUIRED item is missing."""
+    groups = collect()
+    print(_format(groups))
+    mr, _ = status(groups)
+    return 1 if mr else 0
 
 
 if __name__ == "__main__":
