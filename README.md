@@ -4,23 +4,13 @@
 natural language.**
 
 [BRIER](https://github.com/UM-KevinHe/BRIER) integrates a target cohort with external
-information (a pretrained PRS, GWAS summary statistics, or another cohort) and tunes how
-much to borrow. BRIER-Agent is an agent layer on top of the package: you describe your
-data and your question in plain English, the agent inspects the data, infers the right
-BRIER model, runs the fit through R on your machine, compares it against a no-transfer
-baseline and the external used alone, and explains the result.
+information (a pretrained PRS, GWAS summary statistics, or another cohort) and adaptively
+determines how much to borrow.
 
-It is built to run with a small open model (Qwen 2.5-7B) so an analysis can run locally or
-air-gapped, where sending genetic data to a frontier API is not an option. The raw
-genotypes never leave the machine: the model only ever sees tool results and R
-expressions, not your matrices.
-
-## Running BRIER with an AI assistant
-
-The BRIER R API has three modules (`BRIERi`, `BRIERs`, `BRIERfull`), several selection
-criteria, and the transfer strength eta to tune. Choosing the right combination is the
-part non-statistician users struggle with. The agent picks it for you, runs it on your
-machine, and explains the result.
+BRIER-Agent is an agent layer over the package, built to run with a small open model
+(Qwen 2.5-7B) so an analysis can run locally, even fully offline, where sending genetic
+data to a frontier API is not an option. The raw and sensitive genetic data never leave
+the machine: the model only ever sees tool results and R expressions, not your matrices.
 
 BRIER-Agent has two parts. The **agent** is a ReAct loop that carries an analysis through
 its stages: it **inspects** the data, **infers** the correct BRIER module, **preprocesses**
@@ -43,7 +33,7 @@ remote server over SSH.
 | **MCP + Claude/Codex, local** | R + BRIER + one setup script | your Claude or Codex subscription | file paths + summaries only | day-to-day use on your own machine |
 | **MCP + Claude/Codex, remote** | same, on the server (over SSH) | your Claude or Codex subscription | data and compute stay on the server | data on an HPC or lab server |
 
-### Run the agent with a local model (Docker self-host)
+## Run the agent with a local model (Docker self-host)
 
 For PHI workflows, networks that block outbound LLM calls, or anyone who wants the whole
 stack on hardware they control. A local Qwen 2.5-7B (via vLLM) runs alongside the R
@@ -65,7 +55,7 @@ docker compose --profile local up
 Then open <http://localhost:7860>. The first start downloads the model weights (cached on
 the host so a restart does not re-fetch them).
 
-### Run the agent with an external API (no GPU)
+## Run the agent with an external API (no GPU)
 
 For a machine without a GPU, or when you want a stronger model than a local 7B. The agent
 reaches a hosted OpenAI-compatible endpoint (OpenAI, Together, Groq, a remote vLLM). The
@@ -92,7 +82,7 @@ Both agent paths are covered in full, with the CLI and troubleshooting, in
 python -m brier_agent.check_env
 ```
 
-### Use the BRIER tools in Claude or Codex (local data)
+## Use the BRIER tools in Claude or Codex (local data)
 
 If you already use Claude Desktop, Claude Code, or OpenAI Codex, you can drive the BRIER
 tools directly from it, with your own subscription as the model. This is the `brier-local`
@@ -116,7 +106,7 @@ The script verifies R and BRIER, then prints a ready-to-register config block wi
 correct paths for your machine. Register it, reconnect the client, and the BRIER tools are
 available. Full per-client configuration is in [`mcp/docs/SETUP.md`](mcp/docs/SETUP.md).
 
-### Use the BRIER tools on a remote server (over SSH)
+## Use the BRIER tools on a remote server (over SSH)
 
 When your data, R, and BRIER live on a server (an HPC cluster, a lab machine) rather than
 your laptop. This is the `brier-remote` shape: the client launches the server over an
@@ -137,17 +127,6 @@ remotes::install_github("UM-KevinHe/BRIER")
 Requires R >= 4.0. The Docker self-host and external-API paths install BRIER for you
 inside the image; you only need R and BRIER on the host for the MCP-with-Claude/Codex
 paths.
-
-## What it does
-
-BRIER covers three modules, and the agent infers which one your data calls for:
-
-- `BRIERi` (individual-level target + an external coefficient vector),
-- `BRIERs` (summary-statistics target + an LD matrix + an external),
-- `BRIERfull` (pooling several raw cohorts),
-
-then compares the transfer fit against a no-transfer baseline and the external used alone,
-and reports which is best for the target, with held-out R^2 and MSPE (or AUC / deviance).
 
 ## Repository layout
 

@@ -65,6 +65,7 @@ hf-cache/
 /CONCEPTS.md
 /CONTRACT.md
 /run_tests.sh
+/publish.sh
 /benchmark/
 /manual/
 /.claude/
