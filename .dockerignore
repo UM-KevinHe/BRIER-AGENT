@@ -1,0 +1,29 @@
+# Keep the build context small and secret-free.
+
+# Secrets and local env
+.env
+.env.*
+!.env.example
+
+# Python venvs and caches (the image builds its own)
+mcp/.venv/
+.venv/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+
+# VCS and editor
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+
+# Benchmark run outputs and scratch (regenerated, not part of the image)
+benchmark/runs/
+**/*.rds
+scratchpad/
+
+# The model is never baked in
+hf-cache/
+data/

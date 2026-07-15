@@ -1,0 +1,14 @@
+# BRIER-Agent Python dependencies.
+#
+# The agent loop + MCP client (the core) need only mcp + openai. Gradio is
+# for the chat UI (app.py). The Gradio pin matters: the UI was written
+# against the 4.44 component API (show_copy_button on Chatbot, theme= on
+# Blocks), matching the sibling deployment. Newer Gradio (6.x) moved these,
+# so app.py would need edits there; pin 4.x to avoid that.
+
+# Core agent
+mcp>=1.0.0
+openai>=1.0.0
+
+# Chat UI
+gradio>=4.44,<5.0

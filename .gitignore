@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Model weights and caches (NEVER commit these - they are huge)
+*.safetensors
+*.bin
+*.gguf
+*.pt
+*.pth
+models/
+.cache/
+huggingface/
+
+# uv
+.uv/
+
+# OS / editor
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# Data (do not commit research data)
+*.rds
+*.RData
+*.rda
+*.pgen
+*.pvar
+*.psam
+*.bed
+*.bim
+*.fam
+*.bgen
+
+# Secrets
+.env
+.env.*
+!.env.example
+*.key
+
+# Benchmark run outputs (results, reproduce scripts, prepared objects)
+benchmark/runs/
+hf-cache/
+/data/
+
+# --- Private: research / dev internals. NOT for the public GitHub site. ---
+# IMPORTANT: gitignore excludes these from a FRESH `git add` only. It does NOT
+# remove them from THIS repo's existing 158-commit history. To publish, create a
+# NEW repo from the working tree (see the release steps) so gitignore takes effect
+# on the first commit; and ROTATE the Together key first (it is in this history).
+# Anchored with a leading slash so the PUBLIC mcp/docs/CLAUDE.md shim is unaffected.
+/CLAUDE.md
+/PLANNING.md
+/PREP_AUTO_DESIGN.md
+/CONCEPTS.md
+/CONTRACT.md
+/run_tests.sh
+/benchmark/
+/manual/
+/.claude/

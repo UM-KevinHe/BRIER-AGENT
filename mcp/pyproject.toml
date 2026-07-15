@@ -1,0 +1,8 @@
+[project]
+name = "brier-mcp"
+version = "2.1.0"
+description = "MCP server bridging Claude Desktop to the BRIER R package for transfer-learning genetic risk prediction."
+requires-python = ">=3.10"
+dependencies = [
+    "mcp>=1.0.0",
+]

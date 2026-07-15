@@ -1,0 +1,28 @@
+# BRIER-Agent
+
+> An agent that drives BRIER (transfer-learning polygenic risk scores) through natural
+> language, built to run with a small local model (Qwen 2.5-7B) so genetic data never
+> leaves the machine. It inspects the data, infers the right BRIER module, prepares
+> fit-ready inputs, runs the fit through R, compares transfer against no-transfer and
+> external-only baselines, and reports held-out performance.
+
+The model is reached over an OpenAI-compatible endpoint: a self-hosted vLLM (local, GPU,
+private) or an external API (OpenAI, Together, ...). The agent code is identical for both.
+
+## Start here
+
+- [README](README.md): what it is, the two model backends, repository layout.
+- [DEPLOY](DEPLOY.md): Docker deployment, both backends, the environment check.
+
+## How it works
+
+- [mcp/docs/AGENTS.md](mcp/docs/AGENTS.md): the BRIER workflow guide the model reads
+  (module routing, the prepared-object contract, selection and evaluation policy).
+- [mcp/README.md](mcp/README.md): the bundled BRIER-MCP server (tools, install, standalone
+  use with Claude or Codex).
+
+## Run
+
+- Environment check: `python -m brier_agent.check_env`
+- CLI: `python -m brier_agent "your request"`
+- UI: `python app.py` (Gradio, port 7860)

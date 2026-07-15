@@ -1,0 +1,71 @@
+# =============================================================================
+# BRIER-Agent: two ways to hold the model, one agent.
+#
+# The `agent` service is always the same. Where the model lives is a DEPLOYMENT
+# choice, expressed here as compose profiles, not a code change:
+#
+#   EXTERNAL API (no GPU needed) -- the default:
+#       cp .env.example .env       # set BRIER_MODEL_ENDPOINT / _API_KEY / _MODEL_NAME
+#       docker compose up agent
+#     Point the agent at OpenAI, Together, Groq, or any OpenAI-compatible endpoint.
+#     Note: with an external API, tool RESULTS (variant ids, sample counts, summary
+#     statistics, metrics) leave the machine. Raw genotypes never do. Fine for most
+#     users; for a restricted cohort, use the local profile below.
+#
+#   LOCAL MODEL (privacy / air-gapped, needs an NVIDIA GPU):
+#       docker compose --profile local up
+#     Brings up a vLLM service serving Qwen on an OpenAI-compatible endpoint and
+#     points the agent at it. Nothing leaves the machine.
+#
+# The model is NEVER built into the agent image; the local profile uses the stock
+# vLLM image. Neither path runs a model on a machine that cannot hold one.
+# =============================================================================
+
+services:
+  agent:
+    build:
+      context: .
+      args:
+        # Pin a BRIER commit for a reproducible image; default tracks the branch.
+        BRIER_REF: ${BRIER_REF:-main}
+    image: brier-agent
+    ports:
+      - "7860:7860"
+    environment:
+      # Model backend. Defaults here target the LOCAL vLLM service; override in .env
+      # (or the shell) to use an external API. The agent only ever makes an
+      # OpenAI-compatible call, so the same three variables cover both.
+      BRIER_MODEL_ENDPOINT: ${BRIER_MODEL_ENDPOINT:-http://vllm:8000/v1}
+      BRIER_MODEL_NAME: ${BRIER_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct}
+      BRIER_API_KEY: ${BRIER_API_KEY:-EMPTY}
+      BRIER_DEPLOYMENT_MODE: ${BRIER_DEPLOYMENT_MODE:-local}
+    volumes:
+      # The user's data, read by R inside the container. Adjust the host path.
+      - ${BRIER_DATA_DIR:-./data}:/data:ro
+    # An external-API deployment does not need vLLM; the dependency only applies when
+    # the `local` profile brings vllm up.
+    depends_on:
+      vllm:
+        condition: service_started
+        required: false
+
+  # The LOCAL model backend. Only started with `--profile local`. Requires an NVIDIA
+  # GPU + the NVIDIA Container Toolkit on the host. Not built here: stock vLLM image.
+  vllm:
+    profiles: ["local"]
+    image: vllm/vllm-openai:latest
+    command:
+      - "--model"
+      - "${BRIER_MODEL_NAME:-Qwen/Qwen2.5-7B-Instruct}"
+    ports:
+      - "8000:8000"
+    volumes:
+      # Cache downloaded weights on the host so a restart does not re-fetch them.
+      - ${HF_CACHE_DIR:-./hf-cache}:/root/.cache/huggingface
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: ["gpu"]

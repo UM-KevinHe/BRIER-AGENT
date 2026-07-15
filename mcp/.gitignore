@@ -1,0 +1,27 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# uv
+.venv/
+uv.lock
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*~
+
+# BRIER cache (per-user; should never be committed)
+.cache/
+
+# Build artifacts
+*.tar.gz
+build/
+dist/

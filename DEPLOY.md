@@ -1,0 +1,77 @@
+# Deploying BRIER-Agent
+
+BRIER-Agent runs as one container: the agent, the bundled BRIER-MCP server, R, and the
+BRIER package. The model is not in that container. You choose where it lives, and that
+choice is the whole difference between the two deployments below. The tools, the analysis,
+and the correctness guarantees are identical either way.
+
+## Prerequisites
+
+- Docker with Compose.
+- For the local-model path only: an NVIDIA GPU and the NVIDIA Container Toolkit.
+- Your data in a host directory (mounted read-only at `/data`). Genotype/text/`.gz`
+  inputs; see the case docs for the expected roles.
+
+## Check the environment
+
+The image build runs a preflight and fails if anything required is missing, so a broken
+image never ships. To run the same check yourself (inside the container, or on a bare-metal
+install where you provide Python and R directly):
+
+```
+python -m brier_agent.check_env
+```
+
+It verifies the Python interpreter and packages, `Rscript`, the R packages the tools load
+(BRIER, Matrix, jsonlite, survival), and the bundled server file. It exits non-zero only
+when a REQUIRED item is missing; a missing recommended package (`data.table`, `ggplot2`) or
+optional one (xlsx / PLINK readers) is a warning, not a failure. It does not contact the
+model, so it passes with no endpoint configured.
+
+## Option A: external API (no GPU)
+
+Use a hosted OpenAI-compatible endpoint (OpenAI, Together, Groq, a remote vLLM). This is
+the path for a machine without a GPU, or when you want a stronger model than a local 7B.
+
+```
+cp .env.example .env
+# in .env, fill the (B) EXTERNAL API block: endpoint, model name, API key
+docker compose up agent
+```
+
+Open http://localhost:7860.
+
+What leaves the machine: the model sees tool RESULTS (variant ids, sample counts, summary
+statistics, metrics) and R expressions, and those go to the API provider. The raw genotype
+matrices never leave: the agent only ever sees tool outputs, not your data. For most users
+that is fine. For a cohort whose summary statistics may not leave the premises, use Option
+B.
+
+## Option B: local model (privacy / air-gapped, needs a GPU)
+
+A vLLM service serves the model on an OpenAI-compatible endpoint inside the compose
+network, and the agent points at it. Nothing leaves the machine.
+
+```
+cp .env.example .env          # the (A) LOCAL block is the default; no edits needed
+docker compose --profile local up
+```
+
+The first start downloads the model weights (cached on the host at `HF_CACHE_DIR` so a
+restart does not re-fetch them), then the UI comes up at http://localhost:7860.
+
+## The CLI instead of the UI
+
+The same image runs a one-shot command-line query:
+
+```
+docker compose run --rm agent python -m brier_agent "your request here"
+```
+
+## Notes
+
+- BRIER is pulled from GitHub at build time (it is not on CRAN). For a reproducible image,
+  pin a commit: `BRIER_REF=<sha> docker compose build`.
+- `.env` holds your API key. It is gitignored; never commit it.
+- The agent and the model are decoupled by design: switching from a local 7B to an
+  external frontier model is three environment variables, not a rebuild.

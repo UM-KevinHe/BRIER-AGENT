@@ -1,0 +1,110 @@
+# Codex containment profile (template) for agentic preprocessing over SSH.
+#
+# This is the Codex counterpart to claude-containment-settings.template.json.
+# It expresses the same intent (confine the laptop side, ask before risky
+# actions, keep raw data safe) using Codex's own controls: an OS-enforced
+# sandbox plus an approval policy, rather than Claude's string-matched rules.
+#
+# IMPORTANT: read CONTAINMENT.md before using this. The same honest limit
+# applies as for Claude: the sandbox confines the laptop process, NOT what
+# runs inside an ssh remote command. Server-side chmod on raw data is still
+# the only enforced protection for the remote side.
+#
+# Where this goes: merge the keys you want into ~/.codex/config.toml (global)
+# or a project-scoped .codex/config.toml in a TRUSTED project directory.
+# Codex skips project-scoped config in untrusted directories.
+
+# --------------------------------------------------------------------------
+# Sandbox: what Codex can do technically (OS-enforced via Seatbelt on macOS,
+# bubblewrap on Linux). workspace-write confines writes to the workspace and,
+# by default, turns network access OFF.
+# --------------------------------------------------------------------------
+sandbox_mode = "workspace-write"
+
+# Approval: when Codex must stop and ask. on-request means it asks before
+# leaving the sandbox (network, writes outside the workspace, etc.). This is
+# the Codex analogue of Claude's ask-by-default posture.
+approval_policy = "on-request"
+
+# Who reviews approval requests. "user" = you approve each one manually,
+# which is the safe default for working against research data.
+approvals_reviewer = "user"
+
+[sandbox_workspace_write]
+# Keep network access OFF inside the sandbox. This is the default; set here
+# explicitly so it is visible and intentional. (The laptop-side egress walls
+# in the Claude profile -- no curl/wget/etc. -- correspond to this single
+# switch in Codex: the OS sandbox simply denies network in workspace-write.)
+network_access = false
+
+# Extra directories Codex may write to, beyond the workspace it launched in.
+# Add a SEPARATE, writable output directory here if your preprocessing writes
+# outputs outside the launch dir. Do NOT add your raw-data directory; raw data
+# should stay read-only (see CONTAINMENT.md, server-side chmod backstop).
+writable_roots = []
+
+# --------------------------------------------------------------------------
+# Admin-enforced filesystem read denials. Entries are paths or glob patterns
+# the agent cannot read, and local config cannot weaken them. This is the
+# Codex analogue of the Claude profile's Read(...) deny list for secrets.
+# Adjust the home path patterns to your machine if needed.
+# --------------------------------------------------------------------------
+read_deny = [
+  "**/.ssh/**",
+  "**/.aws/**",
+  "/etc/**",
+  "**/.env",
+  "**/.env.*",
+  "**/*credentials*",
+  "**/*secret*",
+  "**/*token*",
+]
+
+# --------------------------------------------------------------------------
+# Rules: allow / prompt / forbid specific command prefixes outside the
+# sandbox. This is the Codex analogue of the Claude profile's Bash(...) deny
+# entries. "forbid" fails closed; "prompt" asks; "allow" runs without asking.
+#
+# Note: .git/ and .codex/ are kept read-only in workspace-write by default,
+# so commands like git push already require approval. The forbids below make
+# the destructive / exfiltration intent explicit.
+# --------------------------------------------------------------------------
+[[rules]]
+match = "rm"
+action = "forbid"
+
+[[rules]]
+match = "sudo"
+action = "forbid"
+
+[[rules]]
+match = "chmod"
+action = "forbid"
+
+[[rules]]
+match = "chown"
+action = "forbid"
+
+[[rules]]
+match = "dd"
+action = "forbid"
+
+[[rules]]
+match = "curl"
+action = "forbid"
+
+[[rules]]
+match = "wget"
+action = "forbid"
+
+[[rules]]
+match = "git push"
+action = "forbid"
+
+# The ssh-to-your-server command: prompt every time, because the sandbox
+# cannot see inside the remote command string (same limit as Claude). Replace
+# the match with your real ssh target. "prompt" makes every remote command
+# pause for your approval, which is the main gate for the remote side.
+[[rules]]
+match = "ssh YOUR_USER@YOUR_SERVER"
+action = "prompt"

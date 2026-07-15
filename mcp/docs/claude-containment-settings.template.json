@@ -1,0 +1,72 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+
+    "deny": [
+      "Bash(rm:*)",
+      "Bash(rmdir:*)",
+      "Bash(sudo:*)",
+      "Bash(chmod:*)",
+      "Bash(chown:*)",
+      "Bash(mv:*)",
+      "Bash(dd:*)",
+      "Bash(mkfs:*)",
+      "Bash(curl:*)",
+      "Bash(wget:*)",
+      "Bash(scp:*)",
+      "Bash(rsync:*)",
+      "Bash(sftp:*)",
+      "Bash(nc:*)",
+      "Bash(ftp:*)",
+      "Bash(git push:*)",
+      "Bash(cat ~/.ssh/*)",
+      "Bash(cat /etc/*)",
+      "Bash(cat ~/.aws/*)",
+      "Bash(cat *.env)",
+      "Bash(cat *credentials*)",
+      "Bash(cat *secret*)",
+      "Bash(cat *token*)",
+      "Bash(head ~/.ssh/*)",
+      "Bash(tail ~/.ssh/*)",
+      "Bash(head /etc/*)",
+      "Bash(tail /etc/*)",
+      "WebFetch",
+      "Read(/etc/**)",
+      "Read(~/.ssh/**)",
+      "Read(~/.aws/**)",
+      "Read(**/.env)",
+      "Read(**/.env.*)",
+      "Read(**/credentials*)",
+      "Read(**/*token*)",
+      "Read(**/*secret*)",
+      "Edit(~/.ssh/**)",
+      "Edit(~/.bashrc)",
+      "Edit(~/.bash_profile)",
+      "Edit(~/.profile)",
+      "Edit(~/.claude/**)",
+      "Write(~/.ssh/**)",
+      "Write(~/.claude/**)"
+    ],
+
+    "ask": [
+      "Bash(ssh YOUR_USER@YOUR_SERVER:*)"
+    ],
+
+    "allow": [
+      "Read(./**)",
+      "Glob(./**)",
+      "Grep(./**)",
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(head:*)",
+      "Bash(tail:*)",
+      "Bash(wc:*)",
+      "Bash(pwd)",
+      "Bash(echo:*)",
+      "Bash(which:*)"
+    ],
+
+    "additionalDirectories": [
+    ]
+  }
+}
