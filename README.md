@@ -59,15 +59,18 @@ export BRIER_API_KEY=sk-...your-key...
 Then start the chat UI:
 
 ```
-./run_ui.sh                              # chat UI at http://localhost:7860
+./run_ui.sh                              # serves the chat UI on port 7860
 ```
+
+Open <http://localhost:7860> in your browser and chat with the agent: describe your data and
+what you want, and it drives the whole analysis and reports back.
 
 `run_ui.sh` loads `.env.local` and starts the UI. `.env.local` is optional: you can instead
 type the endpoint, model, and key into the UI's "Model & connection" panel, where a **Test
-connection** button checks it. Use `./run_ui.sh --detach` to run it in the background, or
-`python -m brier_agent "your request"` for a one-off command-line query with no UI. To verify
-the environment before the first run: `python -m brier_agent.check_env` (also an
-**Environment check** panel in the UI).
+connection** button checks it. `./run_ui.sh --detach` runs it in the background. Verify the
+environment before the first run with `python -m brier_agent.check_env` (also an **Environment
+check** panel in the UI). Prefer the command line? `python -m brier_agent "your request"` runs
+a one-off query with no UI.
 
 With an external API the model sees tool results (variant ids, sample counts, summary
 statistics, metrics), which go to the provider; the raw genotype matrices never leave the
