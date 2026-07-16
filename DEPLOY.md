@@ -147,6 +147,14 @@ The install is one time per environment; `run_ui.sh` only STARTS the UI (it stay
 logs to `/tmp/brier_ui.log` (override with `BRIER_UI_LOG`); stop it with `pkill -f app.py`.
 Override the interpreter with `PYTHON=...` if `python3` is not your env's name.
 
+**Double-click launcher (macOS): `BRIER-Agent.command`.** For a non-technical user, this is
+the whole of Option C in one step: double-click it in Finder and it creates the virtual
+environment, installs the Python dependencies on the first run, checks R + BRIER, starts the
+UI, and opens the browser. Put the model settings in `.env.local` first, and install R +
+BRIER once (above). The first time, macOS may say it "cannot verify the developer":
+right-click -> Open -> Open, once. It does not install R, Docker, or a GPU model: it only
+removes the terminal step.
+
 ## The CLI instead of the UI
 
 The same image runs a one-shot command-line query:
@@ -162,3 +170,10 @@ docker compose run --rm agent python3 -m brier_agent "your request here"
 - `.env` holds your API key. It is gitignored; never commit it.
 - The agent and the model are decoupled by design: switching from a local 7B to an
   external frontier model is three environment variables, not a rebuild.
+- Tool surface: the UI exposes a validated core set of ~11 tools by default. Tool schemas are
+  re-sent every turn, and the full surface (~31 tools) overflows a small model's context
+  before the analysis starts. With a large-context model you can expose everything:
+  `BRIER_INCLUDE_TOOLS=all` (or a comma-separated list of tool names).
+- The HTML report and `reproduce.R` are written by the harness after a fit, from the recorded
+  selection, rather than by the model: a small model builds that call unreliably. They land in
+  `~/.cache/brier-mcp/reports/` and the UI shows the paths.

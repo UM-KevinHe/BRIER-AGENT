@@ -44,10 +44,11 @@ From the repository root, one-off on the command line:
 python3 -m brier_agent "PROMPT TEXT HERE"
 ```
 
-or open the web UI (`./run_ui.sh`, then <http://localhost:7860>) and paste the prompt
-into the chat. Either way the agent identifies the right module, preprocesses and aligns
-the inputs, fits the transfer model, evaluates it, and reports the result with a
-reproducible R script.
+or open the web UI (`./run_ui.sh`, or double-click `BRIER-Agent.command` on macOS, then
+<http://localhost:7860>) and paste the prompt into the chat. Either way the agent identifies
+the right module, preprocesses and aligns the inputs, fits the transfer model, evaluates it,
+and reports the result. In the UI, an HTML report and a standalone `reproduce.R` are then
+written for you (by the harness, from the recorded fit) and their paths are shown.
 
 **Before sending, replace `/path/to/BRIER-Agent`** in the working directory named at the
 start of each prompt with the absolute path to your checkout: run `pwd` in the repository
