@@ -511,6 +511,7 @@ with gr.Blocks(title="BRIER-Agent", theme=gr.themes.Soft()) as demo:
             )
             with gr.Row():
                 send_btn = gr.Button("Send", variant="primary")
+                stop_btn = gr.Button("Stop")
                 clear_btn = gr.Button("Clear")
 
         # ---- Right: results ----
@@ -527,8 +528,12 @@ with gr.Blocks(title="BRIER-Agent", theme=gr.themes.Soft()) as demo:
     inputs = [msg_in, chatbot, data_upload, endpoint_in, model_in, api_key_in]
     outputs = [chatbot, msg_in, tools_out]
 
-    send_btn.click(chat_submit, inputs=inputs, outputs=outputs)
-    msg_in.submit(chat_submit, inputs=inputs, outputs=outputs)
+    # Keep the submit events so the Stop button can cancel a run in progress.
+    send_evt = send_btn.click(chat_submit, inputs=inputs, outputs=outputs)
+    submit_evt = msg_in.submit(chat_submit, inputs=inputs, outputs=outputs)
+    # Stop: cancel the in-flight analysis so the UI is freed (a fit already handed to R may
+    # finish in the background, but its result is discarded and the next turn starts clean).
+    stop_btn.click(None, inputs=None, outputs=None, cancels=[send_evt, submit_evt])
     clear_btn.click(reset_chat, inputs=None, outputs=outputs)
     env_btn.click(_env_check, inputs=None, outputs=env_out)
     install_btn.click(_install_recommended, inputs=None, outputs=env_out)
