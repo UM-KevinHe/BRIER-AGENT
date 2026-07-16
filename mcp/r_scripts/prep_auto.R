@@ -73,7 +73,18 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     if (length(hit) >= 1L) {
       path <- hit[1L]
     } else {
-      stop(sprintf("file for role %s not found: %s", role, path), call. = FALSE)
+      # The directory is right (the dispatch checked it) but this filename is not. Show what
+      # IS there, so a typo or a wrong extension is visible instead of guessable.
+      avail <- tryCatch(list.files(data_dir), error = function(e) character(0))
+      avail <- avail[!grepl("^\\.", avail)]
+      have <- if (length(avail)) {
+        paste0(" Files in '", data_dir, "': ",
+               paste(utils::head(avail, 15), collapse = ", "),
+               if (length(avail) > 15) ", ..." else "", ".")
+      } else {
+        paste0(" '", data_dir, "' is empty.")
+      }
+      stop(sprintf("file for role %s not found: %s.%s", role, path, have), call. = FALSE)
     }
   }
   path
@@ -277,16 +288,33 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 # silently (mirrors .external_is_degenerate for FITTED externals).
 .check_external_overlap <- function(ext_tab, panel) {
   if (is.null(ext_tab)) return(invisible(0L))
-  vn <- if ("varnames" %in% colnames(ext_tab)) as.character(ext_tab$varnames) else character(0)
-  n <- sum(vn %in% as.character(panel))
+  panel <- as.character(panel)
+  # An EMPTY target panel is an UPSTREAM problem (the target's own alignment kept nothing),
+  # never the external's fault. Firing here would blame the external's identifier column for
+  # something it did not cause and send the caller off fixing the wrong file, so stand down
+  # and let the real error surface.
+  if (!length(panel)) return(invisible(0L))
+  has_id <- "varnames" %in% colnames(ext_tab)
+  vn <- if (has_id) as.character(ext_tab$varnames) else character(0)
+  n <- sum(vn %in% panel)
   if (n == 0L) {
+    if (!has_id) {
+      stop(paste0(
+        "the external has no identifier column that could be recognized, so nothing can be ",
+        "matched to the target panel. A pretrained coefficient table is an identifier column ",
+        "(`varnames`, or an alias such as SNP / id / rsid) plus a coefficient column. ",
+        "Columns found: ", paste(utils::head(colnames(ext_tab), 8), collapse = ", "), "."),
+        call. = FALSE)
+    }
+    # It HAS names, and the panel is non-empty: the two name sets genuinely do not meet.
+    # Show both, rather than asserting whose fault it is.
     stop(paste0(
       "the external model shares NO predictor names with the target panel, so it would ",
-      "contribute nothing (an all-zero external). Most often its IDENTIFIER column is not ",
-      "recognized: a pretrained coefficient table must be a `varnames` column (the predictor ",
-      "names, matching the target) plus a `coef` column. Columns found: ",
-      paste(utils::head(colnames(ext_tab), 8), collapse = ", "),
-      ". If the predictors genuinely differ, the external is not usable for this target."),
+      "contribute nothing (an all-zero external). External names look like: ",
+      paste(utils::head(vn, 4), collapse = ", "), " (", length(vn), " total); the target ",
+      "panel looks like: ", paste(utils::head(panel, 4), collapse = ", "), " (",
+      length(panel), " total). Either this external is for a different predictor set, or the ",
+      "wrong file was passed as the external or as the target panel / LD."),
       call. = FALSE)
   }
   invisible(n)
@@ -2479,6 +2507,24 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   } else {
     "gwas"
   }
+  # A caller (usually a small model second-guessing the auto-detection) can ask for "gwas" on
+  # a sumstats that ALREADY ships `corr`. "gwas" means DERIVE corr from p / N / the effect's
+  # sign, so with no `beta` or `sgn` column the derivation is impossible and prep_auto used to
+  # hard-stop -- while the answer was sitting right there in the `corr` column. Honor the
+  # DATA over the argument: fall back to the column that exists, and say so.
+  if (identical(tolower(target_ind), "gwas")) {
+    .ssm <- .ss_col_map(sumstats)
+    .cn <- colnames(sumstats)
+    .can_derive <- any(c(.ssm[["beta"]], .ssm[["sgn"]]) %in% .cn)
+    .has_corr <- .ssm[["corr"]] %in% .cn
+    if (!.can_derive && .has_corr) {
+      target_ind <- "corr"
+      report <- c(report, paste0(
+        "_notice_target_ind_corrected: target_ind='gwas' asks to DERIVE corr from p/N and the ",
+        "effect sign, but this sumstats has no beta/sgn column to take the sign from. It does ",
+        "ship a `", .ssm[["corr"]], "` column, so using target.ind='corr' instead."))
+    }
+  }
   report <- c(report, sprintf("target.ind = '%s'", target_ind))
 
   # SUBSET THEN FIT needs the TARGET'S PANEL, and for a summary target that is NOT `snp`.
@@ -3018,6 +3064,26 @@ result <- tryCatch({
 
   if (is.null(shape) || !nzchar(shape)) stop("shape is required", call. = FALSE)
   if (is.null(data_dir) || !nzchar(data_dir)) stop("data_dir is required", call. = FALSE)
+  # Check the DIRECTORY before any role lookup. Otherwise a wrong data_dir surfaces as
+  # "file for role target_sumstats not found: <data_dir>/<file>", which points at the FILE and
+  # sends the caller renaming roles when the directory itself is the problem. A small model
+  # given "the repository root" with no real path invents one (e.g. "/path/to/repository/root")
+  # and then loops on that file-not-found. Name the actual mistake, once, up front.
+  if (!dir.exists(data_dir)) {
+    parent <- dirname(data_dir)
+    hint <- if (dir.exists(parent)) {
+      sub_dirs <- list.dirs(parent, full.names = FALSE, recursive = FALSE)
+      sub_dirs <- sub_dirs[nzchar(sub_dirs)]
+      if (length(sub_dirs)) paste0(" Its parent '", parent, "' does exist and contains: ",
+                                   paste(utils::head(sub_dirs, 10), collapse = ", "), ".")
+      else ""
+    } else ""
+  stop(sprintf(paste0(
+      "data_dir does not exist: '%s'. This is the FOLDER the roles are read from, so nothing ",
+      "can be found until it is right; the role filenames are not the problem. Pass the real ",
+      "absolute path to the folder holding the data (a placeholder like ",
+      "'/path/to/...' is not a path).%s"), data_dir, hint), call. = FALSE)
+  }
   if (is.null(roles) || length(roles) == 0) stop("roles is required", call. = FALSE)
   if (!standardize_method %in% c("sd", "maf")) {
     stop("standardize_method must be 'sd' or 'maf'", call. = FALSE)
