@@ -83,12 +83,13 @@ DEFAULT_API_KEY = os.environ.get("BRIER_API_KEY", "")
 INTRO_MD = """\
 # BRIER-Agent
 
-Transfer-learning polygenic risk scores with the
-[BRIER](https://github.com/UM-KevinHe) R package, driven by a tool-using
+Transfer learning for risk prediction from genetic and genomics data with the
+[BRIER](https://github.com/UM-KevinHe/BRIER) R package, driven by a tool-using
 LLM agent. Describe your data and question in plain language; the agent
-inspects the data, routes to the right BRIER model (summary-statistics,
-individual-level, or pooled-cohort), runs it on your machine, and explains
-the result.
+identifies the right BRIER module (summary-statistics, individual-level, or
+pooled-cohort), preprocesses and aligns the inputs, fits the transfer model,
+compares it against a no-transfer baseline and each external source, and
+explains the result. Your data stays on this machine.
 """
 
 EXAMPLE_QUERY = (
