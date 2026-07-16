@@ -19,6 +19,9 @@ Environment variables (see brier_agent/config.py for the full list):
   BRIER_MODEL_NAME       Model id. Default gpt-4o-mini; qwen2.5-7b-awq for vLLM.
   BRIER_API_KEY          LLM auth (any non-empty value for vLLM).
   BRIER_DEPLOYMENT_MODE  "local" (shows the upload widget) or "demo" (hides it).
+  BRIER_INCLUDE_TOOLS    Tool allowlist. Default: a validated ~11-tool core that
+                         fits a small model's context. "all" exposes the full
+                         surface (for a large-context model); or a comma list.
   BRIER_AUTH_USER /      Optional Gradio login gate (both must be set). The HF
   BRIER_AUTH_PASS        Space pattern: credentials live in Space Secrets.
 """
@@ -147,6 +150,32 @@ def _resolve_upload_path(uploaded_file) -> Optional[str]:
 # --------------------------------------------------------------------------
 
 
+# Tool schemas are re-sent on EVERY turn and are a fixed per-turn tax on the context window.
+# The full 31-tool surface is ~23k tokens: on a small-context model (Qwen 2.5-7B, 32769) that
+# overflows before the analysis runs ("inputs + max_new > 32769", a 422). Default the UI to
+# the validated CORE tool set (the benchmark's, plus summarize_fit for the report step in
+# deployment_prompt) -- ~11 tools, which every supported workflow needs and which fits the
+# window with room for the prompt and history. Override with BRIER_INCLUDE_TOOLS: "all" exposes
+# the full surface (for a large-context model), or a comma-separated list of tool names.
+_CORE_TOOLS = {
+    "inspect_user_data", "prep_auto",
+    "brier_i", "brier_s", "brier_full",
+    "brier_i_selection", "brier_s_selection", "brier_full_selection",
+    "brier_evaluate", "score_external_prs",
+    "summarize_fit",
+}
+
+
+def _agent_tools():
+    """The tool allowlist for the UI agent (None => the full surface)."""
+    raw = os.environ.get("BRIER_INCLUDE_TOOLS", "").strip()
+    if raw.lower() == "all":
+        return None
+    if raw:
+        return {t.strip() for t in raw.split(",") if t.strip()}
+    return set(_CORE_TOOLS)
+
+
 def _make_agent(endpoint: str, model: str, api_key: str) -> BrierAgent:
     """Build a fresh agent per query (keeps the per-turn state simple)."""
     config = AgentConfig.from_env()
@@ -157,7 +186,8 @@ def _make_agent(endpoint: str, model: str, api_key: str) -> BrierAgent:
     if api_key:
         config.api_key = api_key
     config.deployment_mode = DEPLOYMENT_MODE
-    return BrierAgent(config=config, system_prompt=deployment_prompt())
+    return BrierAgent(config=config, system_prompt=deployment_prompt(),
+                      include_tools=_agent_tools())
 
 
 def _run_agent_sync(agent: BrierAgent, user_msg: str, data_path: Optional[str],
