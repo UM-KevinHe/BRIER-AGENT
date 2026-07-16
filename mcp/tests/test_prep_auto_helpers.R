@@ -669,6 +669,38 @@ local({
 })
 
 
+section("external identifier normalization (.ensure_external_varnames)")
+# The COEF column was always guessed; the IDENTIFIER column used to require the literal
+# name `varnames`, so a `SNP`/`id`/... column silently matched nothing (all-zero external).
+ok("varnames" %in% colnames(.ensure_external_varnames(
+     data.frame(varnames = c("g1","g2"), coef = c(0.1, 0.2), stringsAsFactors = FALSE))),
+   "an existing varnames column is kept")
+ok(identical(colnames(.ensure_external_varnames(
+     data.frame(SNP = c("g1","g2"), coef = c(0.1, 0.2), stringsAsFactors = FALSE)))[1], "varnames"),
+   "a `SNP` identifier alias is renamed to varnames")
+ok("varnames" %in% colnames(.ensure_external_varnames(
+     data.frame(id = c("g1","g2"), weight = c(0.1, 0.2), stringsAsFactors = FALSE))),
+   "an `id` alias is renamed (and the coef column may be `weight`)")
+ok("varnames" %in% colnames(.ensure_external_varnames(
+     data.frame(locus = c("g1","g2"), coef = c(0.1, 0.2), stringsAsFactors = FALSE))),
+   "a lone non-numeric column (no alias) is taken as the identifier")
+ok(!("varnames" %in% colnames(.ensure_external_varnames(
+     data.frame(a = c("x","y"), b = c("p","q"), coef = c(1, 2), stringsAsFactors = FALSE)))),
+   "two non-numeric columns and no alias: left unchanged (ambiguous, no guess)")
+
+section("zero-overlap external guard (.check_external_overlap)")
+ok(.check_external_overlap(
+     data.frame(varnames = c("g1","g2"), coef = c(1, 2), stringsAsFactors = FALSE),
+     c("g1","g3","g5")) == 1L,
+   "an external that overlaps the panel returns the overlap count, no error")
+errs(.check_external_overlap(
+       data.frame(varnames = c("z1","z2"), coef = c(1, 2), stringsAsFactors = FALSE),
+       c("g1","g2","g3")),
+     "shares NO predictor names",
+     "a disjoint external ERRORS loudly instead of returning a silent all-zero vector")
+ok(.check_external_overlap(NULL, c("g1")) == 0L,
+   "a NULL external is a no-op (the missing-external path handles it elsewhere)")
+
 if (.fails == 0L) {
   cat(sprintf("prep_auto helpers: ALL %d CHECKS PASS\n", .checks))
 } else {

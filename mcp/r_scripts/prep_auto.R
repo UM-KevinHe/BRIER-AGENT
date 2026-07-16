@@ -240,6 +240,58 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   tail(num, 1)
 }
 
+# Normalize an external coefficient table's IDENTIFIER column to `varnames`. The COEF column
+# is already guessed (.guess_coef_col); the identifier used to require the literal name
+# `varnames`, so an external whose id column was `SNP` / `id` / `rsID` / ... silently matched
+# NOTHING and produced an all-zero external with no error. Now: keep `varnames` if present;
+# else rename a recognized id alias (case-insensitive); else, for a two-part coefficient
+# table (one id column + one numeric coef column), rename the single non-numeric column. If
+# no identifier can be found the table is returned unchanged, and .check_external_overlap
+# turns the resulting zero match into a LOUD error rather than a silent no-transfer external.
+.ensure_external_varnames <- function(df) {
+  df <- as.data.frame(df)
+  cn <- colnames(df)
+  if (is.null(cn) || "varnames" %in% cn) return(df)
+  aliases <- c("snp","snpid","snp_id","rsid","rsids","rs","rs_id","id","variant",
+               "variantid","variant_id","variable","marker","name","gene","geneid",
+               "gene_id","feature","predictor","term","probe","protein")
+  hit <- cn[tolower(cn) %in% aliases]
+  if (length(hit) >= 1) {
+    colnames(df)[colnames(df) == hit[1]] <- "varnames"
+    return(df)
+  }
+  # No named identifier: a coefficient table is one id column plus one numeric coef column,
+  # so a lone non-numeric column is the identifier.
+  nonnum <- cn[!vapply(df, is.numeric, logical(1))]
+  if (length(nonnum) == 1L) {
+    colnames(df)[colnames(df) == nonnum] <- "varnames"
+    return(df)
+  }
+  df
+}
+
+# Refuse an external that shares NO predictor names with the target panel. Such an external
+# aligns to an all-zero coefficient vector (nothing joins), which is indistinguishable in the
+# fit from "no transfer" but is almost always a mis-read identifier column or a genuinely
+# disjoint panel. A degenerate external is a DATA signal, not something to paper over
+# silently (mirrors .external_is_degenerate for FITTED externals).
+.check_external_overlap <- function(ext_tab, panel) {
+  if (is.null(ext_tab)) return(invisible(0L))
+  vn <- if ("varnames" %in% colnames(ext_tab)) as.character(ext_tab$varnames) else character(0)
+  n <- sum(vn %in% as.character(panel))
+  if (n == 0L) {
+    stop(paste0(
+      "the external model shares NO predictor names with the target panel, so it would ",
+      "contribute nothing (an all-zero external). Most often its IDENTIFIER column is not ",
+      "recognized: a pretrained coefficient table must be a `varnames` column (the predictor ",
+      "names, matching the target) plus a `coef` column. Columns found: ",
+      paste(utils::head(colnames(ext_tab), 8), collapse = ", "),
+      ". If the predictors genuinely differ, the external is not usable for this target."),
+      call. = FALSE)
+  }
+  invisible(n)
+}
+
 # Is this object ALREADY an LD matrix, rather than a reference panel to build one
 # from? `target_ld` and `target_ld_panel` are both "the LD thing", so a small model
 # mixes them up: on a real run the 7B handed a prebuilt sparse LD as
@@ -1615,7 +1667,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 .load_externals <- function(data_dir, roles, snp_info = NULL, require_coords = TRUE,
                             family = "gaussian", standardize_method = "sd",
                             ext_ld_ancestry = NULL, ext_ld_build = NULL,
-                            target_panel_map = NULL) {
+                            target_panel_map = NULL, allow_name_merge = FALSE) {
   if (is.null(target_panel_map)) target_panel_map <- snp_info
   # Name a mis-typed external role BEFORE anything downstream complains about a missing
   # file or an empty variant intersection: those errors are true but they are downstream
@@ -1682,7 +1734,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     p <- .role_path(data_dir, sp$roles, sp$role)
     if (p %in% seen) next
     seen <- c(seen, p)
-    singles[[length(singles) + 1]] <- .read_role(data_dir, sp$roles, sp$role)
+    singles[[length(singles) + 1]] <- .ensure_external_varnames(
+      .read_role(data_dir, sp$roles, sp$role))
   }
   if (length(singles) == 0) return(NULL)
   }  # end else (file-based externals)
@@ -1765,11 +1818,32 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     return(df)
   }
   if (!require_coords) {
-    # varnames fallback with multiple externals: return them merged on varnames
-    # is out of scope here; the align resolver handles single-table varnames
-    # matching. For multiple, require coordinates (mergeExternals needs them).
-    stop("multiple externals in varnames-fallback mode are not supported; provide coordinates",
-         call. = FALSE)
+    if (!allow_name_merge) {
+      # GENOTYPE varnames fallback: merging several externals safely needs allele
+      # harmonization across them (BRIER::mergeExternals), which needs coordinates.
+      # Without coordinates, a shared varname might encode opposite alleles in two
+      # externals, so refuse rather than merge on the name and orient nothing.
+      stop("multiple externals in varnames-fallback mode are not supported; provide coordinates",
+           call. = FALSE)
+    }
+    # GENERIC predictors have no alleles to orient, so several externals merge by NAME
+    # alone (no coordinates, no mergeExternals). Build one table varnames + coef1..coefM;
+    # a variant an external does not cover contributes 0 to that external's column (no
+    # transfer), exactly the single-external impute-0. .align_predictors then aligns the
+    # whole table to the target panel, imputing 0 for target predictors no external covers.
+    all_names <- unique(unlist(lapply(singles, function(df) as.character(df$varnames))))
+    merged <- data.frame(varnames = all_names, stringsAsFactors = FALSE)
+    for (k in seq_along(singles)) {
+      df <- singles[[k]]
+      cc <- if (any(grepl("^coef", colnames(df)))) grep("^coef", colnames(df), value = TRUE)[1]
+            else .guess_coef_col(df)
+      v <- rep(0.0, length(all_names))
+      idx <- match(all_names, as.character(df$varnames))
+      got <- !is.na(idx)
+      v[got] <- as.numeric(df[[cc]][idx[got]])
+      merged[[sprintf("coef%d", k)]] <- v
+    }
+    return(merged)
   }
   prepped <- lapply(singles, function(df) {
     if (!"coef" %in% colnames(df)) df$coef <- df[[.guess_coef_col(df)]]
@@ -1817,7 +1891,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
                                family = family, standardize_method = standardize_method,
                                ext_ld_ancestry = ext_ld_ancestry,
                                ext_ld_build = ext_ld_build,
-                               target_panel_map = snp)
+                               target_panel_map = snp, allow_name_merge = TRUE)
+    .check_external_overlap(ext_tab, snp$varnames)
     al <- .align_predictors(ref = snp, ext_tab = ext_tab, predictor_type = "generic")
     surv <- as.character(snp$varnames)[al$keep]
     return(list(surv_varnames = surv, beta = al$beta, method_used = "varnames",
@@ -1857,14 +1932,24 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 
   # varnames fallback: surviving set = snp_info varnames (canonical panel);
   # externals matched by varnames string. Allele assumed encoded in varnames.
+  # This branch is reached PRECISELY BECAUSE no coordinates are available, so several
+  # externals can only be merged by NAME here, exactly like the single-external case just
+  # below. allow_name_merge = TRUE keeps the multi-external path consistent with the single
+  # one instead of demanding coordinates that, by construction, do not exist (a genotype
+  # matrix the model mislabelled, or a coordinate-free panel). mergeExternals is impossible
+  # without coordinates anyway; the same "allele encoded in varnames" caveat carries over.
   surv <- as.character(snp$varnames)
   ext_tab <- .load_externals(data_dir, roles, snp_info = NULL, require_coords = FALSE,
                              family = family, standardize_method = standardize_method,
-                             ext_ld_ancestry = ext_ld_ancestry, ext_ld_build = ext_ld_build)
+                             ext_ld_ancestry = ext_ld_ancestry, ext_ld_build = ext_ld_build,
+                             allow_name_merge = TRUE)
+  .check_external_overlap(ext_tab, surv)
   beta <- NULL
+  n_ext <- 0L
   if (!is.null(ext_tab)) {
     coef_cols <- grep("^coef", colnames(ext_tab), value = TRUE)
     if (length(coef_cols) == 0) coef_cols <- setdiff(colnames(ext_tab), "varnames")
+    n_ext <- length(coef_cols)
     idx <- match(surv, as.character(ext_tab$varnames))
     beta <- matrix(0, nrow = length(surv), ncol = length(coef_cols))
     present <- !is.na(idx)
@@ -1873,7 +1958,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     }
   }
   list(surv_varnames = surv, beta = beta, method_used = "varnames",
-       note = sprintf("varnames-string alignment (no coordinates): %d SNPs", length(surv)))
+       note = sprintf("varnames-string alignment (no coordinates): %d predictors, %d external model(s) merged by name",
+                      length(surv), n_ext))
 }
 
 
@@ -2059,7 +2145,19 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 
   Xtr <- .geno_matrix(.read_role(data_dir, roles, "target_X_train"))
   ytr <- .pheno_vector(.read_role(data_dir, roles, "target_y_train"))
-  snp <- .read_role(data_dir, roles, "snp_info")
+  snp <- .read_role(data_dir, roles, "snp_info", required = FALSE)
+  if (is.null(snp)) {
+    # snp_info is a GENOTYPE map: varnames PLUS CHR/BP/REF/ALT, for coordinate
+    # alignment and allele-flip correction. A non-genetic predictor (gene
+    # expression, protein, ...) has no such map: its identity IS the column name.
+    # Rather than force the caller to supply a meaningless variant map, derive a
+    # names-only panel from the training matrix. With no coordinates the predictor
+    # type resolves to generic and alignment is by name (see .align_target_externals).
+    snp <- data.frame(varnames = colnames(Xtr), stringsAsFactors = FALSE)
+    report <- c(report, sprintf(paste0(
+      "snp_info omitted; derived the predictor panel from the training matrix's ",
+      "column names (%d predictors, matched by name)."), ncol(Xtr)))
+  }
   predictor_type <- .resolve_predictor_type(predictor_type, snp)
   report <- c(report, sprintf("loaded target train X %dx%d, y %d; predictor_type = %s",
                               nrow(Xtr), ncol(Xtr), length(ytr), predictor_type))
@@ -2293,7 +2391,11 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   report <- c(report, disc$notes)
 
   sumstats <- .read_role(data_dir, roles, "target_sumstats")
-  snp      <- .read_role(data_dir, roles, "snp_info")
+  # snp_info is optional: it is a GENOTYPE map (varnames + CHR/BP/REF/ALT). Non-genetic
+  # predictors have none, so when it is absent the canonical panel is derived from the LD
+  # matrix's own names further down (the LD IS the variant map for the summary shape).
+  snp      <- .read_role(data_dir, roles, "snp_info", required = FALSE)
+  snp_derived <- is.null(snp)
   predictor_type <- .resolve_predictor_type(predictor_type, snp)
   report <- c(report, sprintf("predictor_type = %s", predictor_type))
   # The LD matrix: prefer a prebuilt target_ld (a matrix or a cal_ld "LD" object);
@@ -2351,6 +2453,20 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
       "(Berisa blocks); for non-genotype predictors omit them (plain correlation)."
     ), call. = FALSE)
   }
+  # snp_info was not supplied (non-genetic predictors): the LD is the canonical variant
+  # map, so derive a names-only panel from its row names now that it exists.
+  if (snp_derived) {
+    if (is.null(rownames(ld))) {
+      stop(paste0(
+        "snp_info was omitted and the LD matrix carries no names to derive the predictor ",
+        "panel from. Supply snp_info (a varnames column), or an LD / reference panel whose ",
+        "predictors are named."), call. = FALSE)
+    }
+    snp <- data.frame(varnames = rownames(ld), stringsAsFactors = FALSE)
+    report <- c(report, sprintf(paste0(
+      "snp_info omitted; derived the predictor panel from the LD matrix's names ",
+      "(%d predictors, matched by name)."), nrow(ld)))
+  }
   # target.ind tells preprocessS how the sumstats encodes the marginal signal.
   # Honor an explicit choice; otherwise AUTO-DETECT: if the sumstats already
   # ships a `corr` column use "corr" (no derivation needed), else "gwas"
@@ -2386,7 +2502,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
                              standardize_method = standardize_method,
                              ext_ld_ancestry = ext_ld_ancestry,
                              ext_ld_build = ext_ld_build,
-                             target_panel_map = tgt_panel_map)
+                             target_panel_map = tgt_panel_map,
+                             allow_name_merge = is_generic)
   if (is.null(ext_tab)) {
     # List BOTH external families. Naming only external_coef here used to push a
     # small model straight back to the pretrained role when the case actually ships
@@ -2406,6 +2523,10 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
       "external_X_2/external_y_2, ..."),
       call. = FALSE)
   }
+  # Name-matched externals (generic) must share predictor names with the panel; a zero
+  # overlap is a mis-read identifier column, not a valid all-zero external. The coordinate
+  # path matches by CHR/BP, so this name-overlap check would false-positive there.
+  if (is_generic) .check_external_overlap(ext_tab, snp$varnames)
   coef_cols <- if (!is.null(ext_tab)) grep("^coef", colnames(ext_tab), value = TRUE) else NULL
 
   # OUR aligner, replacing BRIER::preprocessS (see .align_predictors). It aligns the
@@ -2580,9 +2701,12 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   # OWN held-out data, never the target's. The agent omits the roles; fill them from the
   # cohort's training filename when the siblings are actually there.
   roles <- .discover_external_cohort_vals(data_dir, roles)
-  snp <- .read_role(data_dir, roles, "snp_info")
-  panel <- if ("varnames" %in% colnames(snp)) as.character(snp$varnames) else
-           paste0(snp$SNP, "_", snp$ALT)
+  # snp_info is optional here too: when supplied it also FIXES the panel ORDER; when
+  # absent (non-genetic cohorts) the shared panel is derived from the cohort headers below.
+  snp <- .read_role(data_dir, roles, "snp_info", required = FALSE)
+  panel <- if (is.null(snp)) NULL
+           else if ("varnames" %in% colnames(snp)) as.character(snp$varnames)
+           else paste0(snp$SNP, "_", snp$ALT)
 
   # Resolve genotype PATHS (not data) and read the small phenotype vectors up
   # front: their lengths are the per-cohort row counts, so the stacked matrix is
@@ -2603,10 +2727,19 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   n_ext <- length(ext_paths)
   if (n_ext < 1) stop("brier_full requires at least one external cohort", call. = FALSE)
 
-  # Shared SNP panel from HEADERS alone (no genotype data read yet).
+  # Shared SNP panel from HEADERS alone (no genotype data read yet). When snp_info fixed a
+  # panel order, keep only its variants in that order; otherwise the shared panel IS the
+  # header intersection (in the target cohort's header order).
   hdrs <- c(list(.geno_header(Xt_path)), lapply(ext_paths, .geno_header))
-  common <- Reduce(intersect, hdrs)
-  common <- panel[panel %in% common]
+  hdr_common <- Reduce(intersect, hdrs)
+  if (is.null(panel)) {
+    common <- hdr_common
+    report <- c(report, sprintf(paste0(
+      "snp_info omitted; derived the shared predictor panel from the cohort headers ",
+      "(%d predictors, matched by name)."), length(common)))
+  } else {
+    common <- panel[panel %in% hdr_common]
+  }
   if (length(common) < 1) {
     stop("brier_full: no SNPs shared across all cohorts", call. = FALSE)
   }

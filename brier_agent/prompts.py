@@ -165,7 +165,9 @@ do not need to reason about any of it: name the files by role and call it, with:
 - `shape`: the target module you routed to, `"brier_i"` / `"brier_s"` /
   `"brier_full"`.
 - `data_dir`: the absolute directory holding the files.
-- `roles`: a mapping of logical role -> filename. Build it from inspection:
+- `roles`: a mapping of logical role -> filename. Build it from inspection.
+  `snp_info` is the genotype variant map: pass it for genetic predictors, but OMIT it for
+  non-genetic ones (gene expression, proteins, ...) -- prep_auto derives the panel from the data.
   - brier_i: `target_X_train`, `target_y_train`, `snp_info`, and one of
     `external_coef` (single) or `external_coef_1`, `external_coef_2`, ...
     (multiple, one role each: pass EVERY external, do not keep only the first);

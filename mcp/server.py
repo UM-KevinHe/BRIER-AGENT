@@ -5841,6 +5841,13 @@ def prep_auto(
                 external_X_1_val/external_y_1_val, external_X_2_val/... (so each
                 external-only comparator can be selected on its own held-out
                 data instead of by BIC).
+            snp_info is the variant MAP (variant names, plus CHR/BP/REF/ALT for
+                coordinate alignment and allele flips). It is REQUIRED for genotype
+                predictors and for aligning several external models to one panel,
+                but OPTIONAL for non-genetic predictors (gene expression, proteins,
+                ...): omit it and prep_auto derives the panel from the data (the
+                training matrix for brier_i, the LD's names for brier_s, the shared
+                cohort headers for brier_full).
         standardize: See above.
         standardize_method: "sd" or "maf".
         outcome_family: "gaussian" | "binomial" | "poisson".
