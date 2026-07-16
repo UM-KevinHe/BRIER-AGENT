@@ -127,6 +127,22 @@ local up` and no override in `.env`, it is pre-filled with the vLLM endpoint; bu
 points at an external API, that value wins and you switch by editing the field (or setting
 `BRIER_MODEL_ENDPOINT` before launch).
 
+## Try it with example data
+
+Small synthetic demo datasets and ready-to-run prompts ship under [`examples/`](examples/),
+derived from BRIER's own bundled example data. They cover the three common shapes: an
+individual-level target with one external model, a summary-statistics target, and the
+multi-source decision with several external models. Paste a prompt into the chat UI, or run
+one from the command line:
+
+```
+python -m brier_agent "<paste a prompt from examples/README.md>"
+```
+
+The datasets, what each file is, and the three prompts are in
+[`examples/README.md`](examples/README.md). The predictors are non-genetic, so the prompts
+also show that path: no variant map is needed, and the agent derives the panel from the data.
+
 ## Use the BRIER tools in Claude or Codex (local data)
 
 If you already use Claude Desktop, Claude Code, or OpenAI Codex, you can drive the BRIER
@@ -180,10 +196,12 @@ paths.
 - `app.py` - the Gradio chat UI. `python -m brier_agent` - the CLI.
 - `mcp/` - the bundled BRIER-MCP server (self-contained; its own README): `server.py` +
   `r_scripts/*.R` + `install/` + `docs/`.
+- `examples/` - synthetic demo data and example prompts (`make_demo_data.R` regenerates it).
 - `Dockerfile`, `docker-compose.yml`, `.env.example` - the self-host package.
 
 ## Key documents
 
+- [examples/README.md](examples/README.md) - the bundled demo data and example prompts.
 - [DEPLOY.md](DEPLOY.md) - the two agent backends (Docker self-host and external API), the
   CLI, and the environment check.
 - [mcp/README.md](mcp/README.md) - the bundled BRIER-MCP server: the tool set, install,
