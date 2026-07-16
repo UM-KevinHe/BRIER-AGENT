@@ -111,7 +111,8 @@ Homebrew Python is "externally managed" (PEP 668) and refuses a direct `pip inst
 avoids that and gives you plain `python` / `pip`:
 
 ```
-python3 -m venv .venv && source .venv/bin/activate   # or: conda activate <your-env>
+python3 -m venv .venv --prompt brier-agent   # names the env (brier-agent)
+source .venv/bin/activate                    # or: conda activate <your-env>
 ```
 
 ```

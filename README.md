@@ -49,12 +49,13 @@ Install the Python dependencies into a virtual environment (on macOS a Homebrew 
 gives you plain `python` / `pip`):
 
 ```
-python3 -m venv .venv && source .venv/bin/activate   # or: conda activate <your-env>
-pip install -r requirements.txt                      # one time
+python3 -m venv .venv --prompt brier-agent   # creates .venv, names the env (brier-agent)
+source .venv/bin/activate                    # or: conda activate <your-env>
+pip install -r requirements.txt              # one time
 ```
 
 Reactivate the environment (`source .venv/bin/activate`) in each new terminal before
-`./run_ui.sh`.
+`./run_ui.sh`; your prompt shows `(brier-agent)` when it is active.
 
 Put your external-API settings in a `.env.local` file (gitignored):
 
