@@ -81,7 +81,7 @@ Prerequisites: Python 3.10+, and R (>= 4.0) with the BRIER package installed
 (`remotes::install_github("UM-KevinHe/BRIER")`).
 
 ```
-pip install -r requirements.txt
+pip install -r requirements.txt          # ONE TIME, in this environment
 python -m brier_agent.check_env          # confirm Python, R, BRIER, and deps are present
 
 export BRIER_MODEL_ENDPOINT=https://api.openai.com/v1   # or Together, Groq, a remote vLLM
@@ -93,6 +93,21 @@ python app.py                            # the UI at http://localhost:7860
 # or a one-shot query:
 python -m brier_agent "your request here"
 ```
+
+**Launcher: `./run_ui.sh`.** Instead of exporting the model variables each time, put them in
+`.env.local` (gitignored) once and use the wrapper, which sources it and starts the UI:
+
+```
+python3 -m pip install -r requirements.txt   # ONE TIME per environment
+./run_ui.sh                                  # foreground; Ctrl-C to stop
+./run_ui.sh --detach                         # background; survives closing the terminal
+```
+
+The install is one time per environment; `run_ui.sh` only STARTS the UI (it stays up on
+<http://localhost:7860> until you stop it, so you do not rerun it while it is running).
+`app.py` does not auto-load `.env.local`, so the wrapper sources it for you. Detached mode
+logs to `/tmp/brier_ui.log` (override with `BRIER_UI_LOG`); stop it with `pkill -f app.py`.
+Override the interpreter with `PYTHON=...` if `python3` is not your env's name.
 
 ## The CLI instead of the UI
 
