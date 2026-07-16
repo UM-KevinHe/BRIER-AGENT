@@ -67,10 +67,11 @@ does not auto-detect vLLM; it reads `BRIER_MODEL_ENDPOINT` at startup. So this i
 only when you do not override that variable in `.env`. If your `.env` points at an external
 API, that value wins even with vLLM running: switch by editing the endpoint in the UI's
 "Model & connection" panel (and clicking "Test connection"), or set
-`BRIER_MODEL_ENDPOINT=http://vllm:8000/v1` before launch. If the agent runs natively rather
-than in Compose, use `http://localhost:8000/v1` instead (Compose publishes port 8000).
+`BRIER_MODEL_ENDPOINT=http://vllm:8000/v1` before launch. If you run the agent directly
+(no Docker, `python app.py`) rather than in Compose, use `http://localhost:8000/v1` instead
+(Compose publishes port 8000 to the host).
 
-## Option C: run natively (no Docker)
+## Option C: run directly, without Docker
 
 If you do not have Docker, or already have R and the BRIER package on the machine, run the
 agent directly. This uses an external API for the model (a local 7B still needs a GPU and
