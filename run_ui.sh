@@ -37,7 +37,16 @@ else
   echo "model, and key in the UI's 'Model & connection' panel." >&2
 fi
 
-PY="${PYTHON:-python3}"
+# Interpreter, in order of preference: an explicit PYTHON=..., then the ACTIVE virtualenv's
+# python (so we never fall through to a system python3 that lacks the deps just because the
+# venv exposed `python` but not `python3`), then python3.
+if [ -n "${PYTHON:-}" ]; then
+  PY="$PYTHON"
+elif [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+  PY="$VIRTUAL_ENV/bin/python"
+else
+  PY="python3"
+fi
 command -v "$PY" >/dev/null 2>&1 || {
   echo "ERROR: '$PY' not found. Set PYTHON=<your interpreter> (e.g. PYTHON=python)." >&2
   exit 1
