@@ -95,7 +95,10 @@ python -m brier_agent "your request here"
 ```
 
 **Launcher: `./run_ui.sh`.** Instead of exporting the model variables each time, put them in
-`.env.local` (gitignored) once and use the wrapper, which sources it and starts the UI:
+`.env.local` (gitignored) once and use the wrapper, which sources it and starts the UI. The
+env file is OPTIONAL: `run_ui.sh` falls back to `.env`, then to whatever is already exported,
+and if nothing is set the UI still starts, you just enter the endpoint, model, and key in its
+"Model & connection" panel.
 
 ```
 python3 -m pip install -r requirements.txt   # ONE TIME per environment

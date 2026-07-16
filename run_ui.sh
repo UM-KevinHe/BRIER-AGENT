@@ -4,9 +4,11 @@
 #   ./run_ui.sh              # foreground; Ctrl-C to stop
 #   ./run_ui.sh --detach     # background via nohup; survives closing the terminal
 #
-# It sources .env.local (the model endpoint / name / key) if present, then starts the
-# Gradio UI on http://localhost:7860. app.py reads the model settings from the environment
-# (it does NOT auto-load .env.local), so this wrapper is just "source the env, then launch".
+# It starts the Gradio UI on http://localhost:7860. An env file is OPTIONAL: it sources
+# .env.local (or .env) if present for the model endpoint / name / key, otherwise it uses
+# whatever is already exported, and if nothing is set the UI still starts (enter the
+# connection in its "Model & connection" panel). app.py does NOT auto-load .env.local, which
+# is why this wrapper sources it.
 #
 # One-time setup first (in the environment you run this from):
 #   python3 -m pip install -r requirements.txt
@@ -18,12 +20,21 @@ set -euo pipefail
 DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$DIR"
 
-# Model env: endpoint / model / key. Sourced so app.py's AgentConfig.from_env() sees them.
-if [ -f .env.local ]; then
-  set -a; . ./.env.local; set +a
+# Model settings (endpoint / model / key). An env file is OPTIONAL: source .env.local if it
+# exists, else .env, else rely on whatever is already exported. Even with nothing set the UI
+# starts fine, you just enter the endpoint / model / key in its "Model & connection" panel.
+ENV_FILE=""
+for f in .env.local .env; do
+  if [ -f "$f" ]; then ENV_FILE="$f"; break; fi
+done
+if [ -n "$ENV_FILE" ]; then
+  set -a; . "./$ENV_FILE"; set +a
+  echo "loaded model settings from $ENV_FILE"
+elif [ -n "${BRIER_MODEL_ENDPOINT:-}" ]; then
+  echo "no env file found; using BRIER_MODEL_* already set in the environment."
 else
-  echo "note: no .env.local found; the model endpoint/key are unset (the UI still starts, but" >&2
-  echo "      it will not reach a model until you set BRIER_MODEL_ENDPOINT / _NAME / _API_KEY)." >&2
+  echo "no .env.local / .env and no BRIER_MODEL_* set: starting anyway; set the endpoint," >&2
+  echo "model, and key in the UI's 'Model & connection' panel." >&2
 fi
 
 PY="${PYTHON:-python3}"
