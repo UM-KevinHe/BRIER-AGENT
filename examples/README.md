@@ -54,7 +54,8 @@ you run the agent from elsewhere, use absolute paths.
 
 The everyday case: you have individual-level data and one pretrained model to borrow from.
 
-> I have an individual-level cohort under `examples/data/individual/`: training predictors
+> My working directory is the repository root, so the paths below are relative to it. I have
+> an individual-level cohort under `examples/data/individual/`: training predictors
 > in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, plus validation
 > (`X_val.tsv.gz`, `y_val.tsv.gz`) and test (`X_test.tsv.gz`, `y_test.tsv.gz`) splits. I also
 > have a pretrained external model in `external_model.tsv.gz`. Build the best
@@ -68,6 +69,7 @@ The everyday case: you have individual-level data and one pretrained model to bo
 The target is a GWAS-style summary table rather than individual records, so the agent uses
 the summary module and builds the predictor correlations from the reference panel.
 
+> My working directory is the repository root, so the paths below are relative to it.
 > My target is summary statistics in `examples/data/summary/sumstats.tsv.gz`, and I have a
 > reference panel `reference_panel.tsv.gz` to estimate predictor correlations from. There is
 > a pretrained external model in `external_model.tsv.gz`, and held-out individual data for
@@ -82,7 +84,8 @@ The distinctive case: more than one candidate external source. The agent integra
 tunes how much to borrow from each, and separates which sources actually help from which do
 not.
 
-> I have an individual-level cohort under `examples/data/individual/`: training predictors
+> My working directory is the repository root, so the paths below are relative to it. I have
+> an individual-level cohort under `examples/data/individual/`: training predictors
 > in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, plus validation
 > (`X_val.tsv.gz`, `y_val.tsv.gz`) and test (`X_test.tsv.gz`, `y_test.tsv.gz`) splits. I also
 > have three candidate external models: `external_model1.tsv.gz`, `external_model2.tsv.gz`,
