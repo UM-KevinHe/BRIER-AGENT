@@ -41,10 +41,10 @@ model and completes more reliably with a larger one.
 From the repository root, one-off on the command line:
 
 ```
-python -m brier_agent "PROMPT TEXT HERE"
+python3 -m brier_agent "PROMPT TEXT HERE"
 ```
 
-or open the web UI (`python app.py`, then <http://localhost:7860>) and paste the prompt
+or open the web UI (`./run_ui.sh`, then <http://localhost:7860>) and paste the prompt
 into the chat. Either way the agent identifies the right module, preprocesses and aligns
 the inputs, fits the transfer model, evaluates it, and reports the result with a
 reproducible R script. Paths in the prompts are written relative to the repository root; if
