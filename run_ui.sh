@@ -52,12 +52,15 @@ command -v "$PY" >/dev/null 2>&1 || {
   exit 1
 }
 
-# UI dependencies present? app.py needs gradio (+ gradio_client). If the one-time install has
-# not been run in this environment, fail with a clear hint instead of a cryptic
-# ModuleNotFoundError from deep inside the import.
-if ! "$PY" -c "import gradio" >/dev/null 2>&1; then
-  echo "ERROR: the UI dependencies are not installed for '$PY'." >&2
-  echo "Run once (in this environment):  $PY -m pip install -r requirements.txt" >&2
+# UI dependencies importable? app.py needs gradio. Surface the ACTUAL import error (which
+# package / which line), not a generic "not installed": the failure is often an import ERROR
+# in an installed package, not a missing one (e.g. on Python 3.13 gradio's pydub dependency
+# needs audioop-lts). Show the last line of the traceback so the cause is named.
+if ! gradio_err="$("$PY" -c "import gradio" 2>&1)"; then
+  echo "ERROR: the UI dependency 'gradio' failed to import for '$PY':" >&2
+  printf '%s\n' "$gradio_err" | tail -1 | sed 's/^/  /' >&2
+  echo "Fix: $PY -m pip install -r requirements.txt   (installs the pinned deps; on Python" >&2
+  echo "     3.13 that includes audioop-lts, which gradio needs)." >&2
   exit 1
 fi
 

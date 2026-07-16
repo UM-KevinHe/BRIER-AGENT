@@ -20,3 +20,7 @@ huggingface_hub>=0.24,<0.26
 # pulls a Starlette that changed that signature, so the page render throws
 # "unhashable type: dict". Cap fastapi so its Starlette still supports the old form.
 fastapi>=0.110,<0.113
+# Python 3.13 removed the stdlib `audioop` module, which gradio's pydub dependency imports
+# ("ModuleNotFoundError: No module named 'pyaudioop'" on import gradio). audioop-lts is the
+# maintained backport that restores it; only needed on 3.13+ (the marker skips it below that).
+audioop-lts>=0.2.1; python_version >= "3.13"
