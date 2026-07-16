@@ -201,7 +201,41 @@ def _make_agent(endpoint: str, model: str, api_key: str) -> BrierAgent:
 # "**Note:** ..." abort line, an "**Errors:** ..." block (the real tool error messages), and
 # a "<small>Tools: ...</small>" marker. Cut at the EARLIEST of these so none of them, in any
 # order, reaches the model as history.
-_UI_MARKERS = ("\n\n**Note:**", "\n\n**Errors:**", "\n\n<small>")
+_UI_MARKERS = ("\n\n**Decision (computed):**", "\n\n**Note:**", "\n\n**Errors:**", "\n\n<small>")
+
+
+def _decision_summary(tool_results):
+    """A deterministic transfer-vs-external comparison from the test R^2 metrics.
+
+    A small model reliably produces the right numbers but sometimes narrates the comparison
+    backwards ("does not beat" when 0.1575 > 0.1311). Higher R^2 is better and both the
+    transfer metric (brier_evaluate) and the external-only metric (score_external_prs) report
+    the same scale-invariant cor^2, so the comparison is exact. Returns a markdown line, or ""
+    if the two comparable metrics are not both present. UI-only (stripped from model history).
+    """
+    transfer = external = None
+    for tr in (tool_results or []):
+        r = tr.get("result")
+        if not isinstance(r, dict) or r.get("status") != "ok":
+            continue
+        crit, val = r.get("criteria"), r.get("metric_value")
+        if val is None or not str(crit).endswith("rsq"):
+            continue
+        if tr.get("tool") == "brier_evaluate":
+            transfer = float(val)
+        elif tr.get("tool") == "score_external_prs":
+            external = float(val)
+    if transfer is None or external is None:
+        return ""
+    if transfer > external:
+        who = (f"the **transfer model wins** (test R^2 {transfer:.4f} > external-only "
+               f"{external:.4f})")
+    elif transfer < external:
+        who = (f"the **external model alone wins** (test R^2 {external:.4f} > transfer "
+               f"{transfer:.4f})")
+    else:
+        who = f"they **tie** on test R^2 ({transfer:.4f})"
+    return f"**Decision (computed):** higher R^2 is better, so {who}."
 
 
 def _history_for_model(history_pairs):
@@ -263,6 +297,13 @@ def chat_submit(
         return history, "", None
 
     assistant_text = result.text or "_(no answer)_"
+
+    # A deterministic transfer-vs-external comparison, so a backwards narration ("does not
+    # beat" when the transfer R^2 is actually higher) is corrected by the numbers themselves.
+    decision = _decision_summary(result.tool_results)
+    if decision:
+        assistant_text += f"\n\n{decision}"
+
     if result.error:
         assistant_text += f"\n\n**Note:** {result.error}"
 
