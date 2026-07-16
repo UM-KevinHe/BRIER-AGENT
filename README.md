@@ -40,8 +40,9 @@ Both agent paths below use Docker. If `docker` is not installed (`command not fo
 install [Docker Desktop](https://www.docker.com/products/docker-desktop/) (macOS, Windows,
 Linux) or a lighter alternative ([OrbStack](https://orbstack.dev), or colima via Homebrew:
 `brew install colima docker docker-compose && colima start`), then start the engine before
-running `docker compose`. Prefer not to use Docker at all? The agent also runs directly,
-without Docker (just `python app.py`); see [`DEPLOY.md`](DEPLOY.md).
+running `docker compose`. Prefer not to use Docker at all? The agent also runs directly:
+`python app.py` for the web UI, or `python -m brier_agent "your request"` for a one-off
+command-line query (no UI). See [`DEPLOY.md`](DEPLOY.md).
 
 ## Run the agent with a local model (Docker self-host)
 
