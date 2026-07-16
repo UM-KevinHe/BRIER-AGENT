@@ -209,6 +209,23 @@ standardized). `predictor_type` is DETECTED (a map with CHR + BP is a genome);
 set it to `generic` for non-genotype predictors -- they match by name, have no LD
 blocks, and their "LD" is a plain correlation, so omit ancestry/build.
 
+The variant map (`snp_info`) is genotype vocabulary: variant names PLUS
+CHR/BP/REF/ALT, which is what coordinate matching, allele flips, and merging
+several externals onto one panel need. Supply it for genotypes. **OMIT it for
+non-genetic predictors** (gene expression, proteins): there is no variant map to
+give, so prep_auto derives the predictor panel from the data itself (the training
+matrix for `brier_i`, the LD's names for `brier_s`, the shared cohort headers for
+`brier_full`) and matches by name -- including several externals, since a gene has
+no allele to orient.
+
+A PRETRAINED external is a per-variant coefficient table: an identifier column and
+a coefficient column. Both are recognized flexibly -- the identifier may be
+`varnames` or an alias (`SNP`, `id`, `rsid`, `gene`, ...), the coefficient may be
+`coef`, `beta`, `weight`, ... -- so you rarely need to rename anything. But if the
+external shares NO predictor names with the target panel, prep_auto **errors**
+instead of aligning it to an all-zero vector: an external that matches nothing
+would contribute nothing while looking like a successful run.
+
 Read the returned `report` (every step it performed) as your sanity summary, and
 `external_fits` (nonzero coefficients and selection criterion for each externally
 fitted model) to confirm a fitted external is not degenerate. **An all-zero

@@ -37,7 +37,9 @@ The server exposes 31 tools spanning the full workflow. The main groups:
 - **Preprocessing:** `prep_auto` assembles fit-ready inputs in one call. It aligns
   the external to the target's variant panel itself (matching, allele-flip and
   strand-ambiguity handling, `corr` derivation, impute-0 alignment), merges
-  multiple externals via `mergeExternals`, and adds the numeric steps around them
+  multiple externals (by coordinate via `mergeExternals`, or by predictor name when
+  there are no coordinates to orient, as for non-genotype predictors), and adds the
+  numeric steps around them
   (subset to surviving variants, conditional standardization, the BRIERi intercept
   row, LD construction from a reference panel, validation/test alignment). Its
   aligner is verified bitwise against BRIER's own `preprocessI` / `preprocessS`,
