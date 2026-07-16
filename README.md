@@ -1,24 +1,27 @@
 # BRIER-Agent
 
-**Transfer learning for genetic risk prediction (polygenic risk scores), driven by
+**Transfer learning for risk prediction from genetic and genomics data, driven by
 natural language.**
 
 [BRIER](https://github.com/UM-KevinHe/BRIER) integrates a target cohort with external
-information (a pretrained PRS, GWAS summary statistics, or another cohort) and adaptively
-determines how much to borrow.
+information (a pretrained model, GWAS summary statistics, or another cohort) and adaptively
+determines how much to borrow. Its predictors can be SNP genotypes, gene-expression levels,
+or proteins; the canonical use is cross-ancestry polygenic risk scoring.
 
 BRIER-Agent is an agent layer over the package, built to run with a small open model
-(Qwen 2.5-7B) so an analysis can run locally, even fully offline, where sending genetic
-data to a frontier API is not an option. The raw and sensitive genetic data never leave
-the machine: the model only ever sees tool results and R expressions, not your matrices.
+(Qwen 2.5-7B) so an analysis can run locally, even fully offline, where sending sensitive
+genomic data to a frontier API is not an option. The raw data never leave the machine: the
+model only ever sees tool results and R expressions, not your matrices.
 
 BRIER-Agent has two parts. The **agent** is a ReAct loop that carries an analysis through
-its stages: it **inspects** the data, **infers** the correct BRIER module, **preprocesses**
-it, **fits** the BRIER integration model, **interprets** the fitted model, and **writes up**
-the result. The bundled **BRIER-MCP server** exposes the BRIER R functions as the tools
-behind each stage. The agent talks to a language model to plan the stages, and to the MCP
-server to do the work; the server runs every fit through R on the machine where your data
-lives, so the data never moves.
+its stages: it **identifies** the right BRIER module for your data, **preprocesses** and
+aligns the inputs, **fits** the transfer model, **evaluates and decides** (the integrated
+transfer fit versus a no-transfer baseline versus each external used alone, including when
+several external models are combined), and **reports** the result with a reproducible R
+script. The bundled **BRIER-MCP server** exposes the BRIER R functions as the tools behind
+each stage. The agent talks to a language model to plan the stages, and to the MCP server
+to do the work; the server runs every fit through R on the machine where your data lives,
+so the data never moves.
 
 You can use it two ways. Run the **full agent** (a chat UI or a CLI) and it drives the
 whole analysis for you, with its model either on a local GPU or behind an external API. Or,
@@ -88,6 +91,9 @@ Both agent paths are covered in full, with the CLI and troubleshooting, in
 ```
 python -m brier_agent.check_env
 ```
+
+The UI has the same check as an **Environment check** panel, with a button to install the
+optional R packages, alongside a **Test connection** button under **Model & connection**.
 
 ## Switching between backends
 
