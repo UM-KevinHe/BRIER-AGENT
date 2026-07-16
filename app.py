@@ -197,20 +197,28 @@ def _make_agent(endpoint: str, model: str, api_key: str) -> BrierAgent:
 # is fed back to the MODEL as history -- and a small model that sees "prep_auto (error)"
 # in its own prior turns is primed to REPEAT the failure (a stray fumble snowballs into a
 # stuck loop). Strip them so the model's history holds only the substantive answer.
-_UI_MARKER_RE = re.compile(r"\n\n<small>.*?</small>\s*$", re.DOTALL)
-_UI_NOTE_RE = re.compile(r"\n\n\*\*Note:\*\*.*$", re.DOTALL)
+# The assistant turn appends UI-only decorations after the substantive answer: a
+# "**Note:** ..." abort line, an "**Errors:** ..." block (the real tool error messages), and
+# a "<small>Tools: ...</small>" marker. Cut at the EARLIEST of these so none of them, in any
+# order, reaches the model as history.
+_UI_MARKERS = ("\n\n**Note:**", "\n\n**Errors:**", "\n\n<small>")
 
 
 def _history_for_model(history_pairs):
-    """Return history with the UI-only tool/error markers stripped from assistant turns."""
+    """Return history with the UI-only tool/error decorations stripped from assistant turns."""
     cleaned = []
     for entry in history_pairs or []:
         if not isinstance(entry, (list, tuple)) or len(entry) < 2:
             continue
         u, a = entry[0], entry[1]
         if a:
-            a = _UI_MARKER_RE.sub("", str(a))
-            a = _UI_NOTE_RE.sub("", a).strip()
+            a = str(a)
+            cut = len(a)
+            for marker in _UI_MARKERS:
+                idx = a.find(marker)
+                if idx != -1:
+                    cut = min(cut, idx)
+            a = a[:cut].strip()
         cleaned.append((u, a))
     return cleaned
 

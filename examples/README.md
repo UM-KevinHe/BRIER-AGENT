@@ -47,22 +47,26 @@ python3 -m brier_agent "PROMPT TEXT HERE"
 or open the web UI (`./run_ui.sh`, then <http://localhost:7860>) and paste the prompt
 into the chat. Either way the agent identifies the right module, preprocesses and aligns
 the inputs, fits the transfer model, evaluates it, and reports the result with a
-reproducible R script. Paths in the prompts are written relative to the repository root; if
-you run the agent from elsewhere, use absolute paths.
+reproducible R script.
+
+**Before sending, replace `/path/to/BRIER-Agent`** in the working directory named at the
+start of each prompt with the absolute path to your checkout: run `pwd` in the repository
+root to get it, e.g. `/Users/you/BRIER-Agent`. Naming a concrete working directory matters: a
+small model cannot resolve "the repository root" on its own, so give it a real absolute path.
+The working directory is the data folder itself, so the files are named directly.
 
 ## Prompt 1: individual-level target with one external model
 
 The everyday case: you have individual-level data and one pretrained model to borrow from.
 
-> My working directory is the repository root, and every path below is relative to it. I have
-> an individual-level cohort: training predictors in `examples/data/individual/X_train.tsv.gz`
-> with the outcome in `examples/data/individual/y_train.tsv.gz`, a validation split
-> (`examples/data/individual/X_val.tsv.gz`, `examples/data/individual/y_val.tsv.gz`) and a test
-> split (`examples/data/individual/X_test.tsv.gz`, `examples/data/individual/y_test.tsv.gz`),
-> and a pretrained external model `examples/data/individual/external_model.tsv.gz`. Build the
-> best transfer-learning risk prediction model for this cohort, decide how much to borrow from
-> the external model by tuning on the validation set, and report test-set performance. Compare
-> it against a no-transfer baseline and against the external model used alone, and emit a
+> My working directory is `/path/to/BRIER-Agent/examples/data/individual` (replace
+> `/path/to/BRIER-Agent` with the absolute path to your checkout). I have an individual-level
+> cohort: training predictors in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, a
+> validation split (`X_val.tsv.gz`, `y_val.tsv.gz`) and a test split (`X_test.tsv.gz`,
+> `y_test.tsv.gz`), and a pretrained external model `external_model.tsv.gz`. Build the best
+> transfer-learning risk prediction model for this cohort, decide how much to borrow from the
+> external model by tuning on the validation set, and report test-set performance. Compare it
+> against a no-transfer baseline and against the external model used alone, and emit a
 > reproducible R script.
 
 ## Prompt 2: summary-statistics target
@@ -70,15 +74,14 @@ The everyday case: you have individual-level data and one pretrained model to bo
 The target is a GWAS-style summary table rather than individual records, so the agent uses
 the summary module and builds the predictor correlations from the reference panel.
 
-> My working directory is the repository root, and every path below is relative to it. My
-> target is summary statistics in `examples/data/summary/sumstats.tsv.gz`, with a reference
-> panel `examples/data/summary/reference_panel.tsv.gz` to estimate predictor correlations from,
-> a pretrained external model `examples/data/summary/external_model.tsv.gz`, and held-out
-> individual data for tuning and evaluation (`examples/data/summary/X_val.tsv.gz` /
-> `examples/data/summary/y_val.tsv.gz` and `examples/data/summary/X_test.tsv.gz` /
-> `examples/data/summary/y_test.tsv.gz`). The predictors are not genetic, so there is no
-> variant map. Build the summary-based transfer model, tune it on the validation set, and
-> report test-set performance versus the external model used alone.
+> My working directory is `/path/to/BRIER-Agent/examples/data/summary` (replace
+> `/path/to/BRIER-Agent` with the absolute path to your checkout). My target is summary
+> statistics in `sumstats.tsv.gz`, with a reference panel `reference_panel.tsv.gz` to estimate
+> predictor correlations from, a pretrained external model `external_model.tsv.gz`, and
+> held-out individual data for tuning and evaluation (`X_val.tsv.gz` / `y_val.tsv.gz` and
+> `X_test.tsv.gz` / `y_test.tsv.gz`). The predictors are not genetic, so there is no variant
+> map. Build the summary-based transfer model, tune it on the validation set, and report
+> test-set performance versus the external model used alone.
 
 ## Prompt 3: several external models (the multi-source decision)
 
@@ -86,14 +89,12 @@ The distinctive case: more than one candidate external source. The agent integra
 tunes how much to borrow from each, and separates which sources actually help from which do
 not.
 
-> My working directory is the repository root, and every path below is relative to it. I have
-> an individual-level cohort: training predictors in `examples/data/individual/X_train.tsv.gz`
-> with the outcome in `examples/data/individual/y_train.tsv.gz`, a validation split
-> (`examples/data/individual/X_val.tsv.gz`, `examples/data/individual/y_val.tsv.gz`) and a test
-> split (`examples/data/individual/X_test.tsv.gz`, `examples/data/individual/y_test.tsv.gz`).
-> I also have three candidate external models: `examples/data/individual/external_model1.tsv.gz`,
-> `examples/data/individual/external_model2.tsv.gz`, and
-> `examples/data/individual/external_model3.tsv.gz`. Integrate all three, tune the borrowing on
-> the validation set, and tell me which sources actually help: report the combined transfer
-> model against each external used alone and against a no-transfer baseline on the test set,
-> then recommend which model to use.
+> My working directory is `/path/to/BRIER-Agent/examples/data/individual` (replace
+> `/path/to/BRIER-Agent` with the absolute path to your checkout). I have an individual-level
+> cohort: training predictors in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, a
+> validation split (`X_val.tsv.gz`, `y_val.tsv.gz`) and a test split (`X_test.tsv.gz`,
+> `y_test.tsv.gz`). I also have three candidate external models: `external_model1.tsv.gz`,
+> `external_model2.tsv.gz`, and `external_model3.tsv.gz`. Integrate all three, tune the
+> borrowing on the validation set, and tell me which sources actually help: report the combined
+> transfer model against each external used alone and against a no-transfer baseline on the
+> test set, then recommend which model to use.
