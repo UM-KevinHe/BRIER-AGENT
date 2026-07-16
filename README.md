@@ -44,9 +44,17 @@ The simplest way to run the full agent: no GPU, no Docker, a hosted OpenAI-compa
 **Prerequisites:** Python 3.10+, an API key, and R (>= 4.0) with the BRIER package installed.
 Installing R and BRIER is a one-liner, covered in [`DEPLOY.md`](DEPLOY.md#installing-r-and-brier).
 
+Install the Python dependencies into a virtual environment (on macOS a Homebrew Python is
+"externally managed" and refuses a direct `pip install`; a venv or conda env avoids that, and
+gives you plain `python` / `pip`):
+
 ```
-pip install -r requirements.txt          # one time, in this environment
+python3 -m venv .venv && source .venv/bin/activate   # or: conda activate <your-env>
+pip install -r requirements.txt                      # one time
 ```
+
+Reactivate the environment (`source .venv/bin/activate`) in each new terminal before
+`./run_ui.sh`.
 
 Put your external-API settings in a `.env.local` file (gitignored):
 
@@ -68,8 +76,8 @@ what you want, and it drives the whole analysis and reports back.
 `run_ui.sh` loads `.env.local` and starts the UI. `.env.local` is optional: you can instead
 type the endpoint, model, and key into the UI's "Model & connection" panel, where a **Test
 connection** button checks it. `./run_ui.sh --detach` runs it in the background. Verify the
-environment before the first run with `python -m brier_agent.check_env` (also an **Environment
-check** panel in the UI). Prefer the command line? `python -m brier_agent "your request"` runs
+environment before the first run with `python3 -m brier_agent.check_env` (also an **Environment
+check** panel in the UI). Prefer the command line? `python3 -m brier_agent "your request"` runs
 a one-off query with no UI.
 
 With an external API the model sees tool results (variant ids, sample counts, summary
@@ -88,7 +96,7 @@ multi-source decision with several external models. Paste a prompt into the chat
 one from the command line:
 
 ```
-python -m brier_agent "<paste a prompt from examples/README.md>"
+python3 -m brier_agent "<paste a prompt from examples/README.md>"
 ```
 
 The datasets, what each file is, and the three prompts are in
@@ -99,7 +107,7 @@ also show that path: no variant map is needed, and the agent derives the panel f
 
 - `brier_agent/` - the agent: config, llm_client, mcp_client, tools, guardrails, the
   ReAct loop, the routing prompt, `check_env`.
-- `app.py` - the Gradio chat UI. `python -m brier_agent` - the CLI. `run_ui.sh` - the UI
+- `app.py` - the Gradio chat UI. `python3 -m brier_agent` - the CLI. `run_ui.sh` - the UI
   launcher (loads `.env.local`).
 - `mcp/` - the bundled BRIER-MCP server (self-contained; its own README): `server.py` +
   `r_scripts/*.R` + `install/` + `docs/`.

@@ -35,7 +35,7 @@ remotes::install_github("UM-KevinHe/BRIER")
 Then confirm everything the tools need is present:
 
 ```
-python -m brier_agent.check_env
+python3 -m brier_agent.check_env
 ```
 
 ## Check the environment
@@ -45,7 +45,7 @@ image never ships. To run the same check yourself (inside the container, or on a
 install where you provide Python and R directly):
 
 ```
-python -m brier_agent.check_env
+python3 -m brier_agent.check_env
 ```
 
 It verifies the Python interpreter and packages, `Rscript`, the R packages the tools load
@@ -94,7 +94,7 @@ only when you do not override that variable in `.env`. If your `.env` points at 
 API, that value wins even with vLLM running: switch by editing the endpoint in the UI's
 "Model & connection" panel (and clicking "Test connection"), or set
 `BRIER_MODEL_ENDPOINT=http://vllm:8000/v1` before launch. If you run the agent directly
-(no Docker, `python app.py`) rather than in Compose, use `http://localhost:8000/v1` instead
+(no Docker, `python3 app.py`) rather than in Compose, use `http://localhost:8000/v1` instead
 (Compose publishes port 8000 to the host).
 
 ## Option C: run directly, without Docker
@@ -106,18 +106,26 @@ vLLM), so it suits a laptop without a GPU.
 Prerequisites: Python 3.10+, and R (>= 4.0) with the BRIER package installed
 (`remotes::install_github("UM-KevinHe/BRIER")`).
 
+Install into a virtual environment or a conda env, not the system Python. On macOS a
+Homebrew Python is "externally managed" (PEP 668) and refuses a direct `pip install`; a venv
+avoids that and gives you plain `python` / `pip`:
+
 ```
-pip install -r requirements.txt          # ONE TIME, in this environment
-python -m brier_agent.check_env          # confirm Python, R, BRIER, and deps are present
+python3 -m venv .venv && source .venv/bin/activate   # or: conda activate <your-env>
+```
+
+```
+python3 -m pip install -r requirements.txt   # ONE TIME, in this environment
+python3 -m brier_agent.check_env             # confirm Python, R, BRIER, and deps are present
 
 export BRIER_MODEL_ENDPOINT=https://api.openai.com/v1   # or Together, Groq, a remote vLLM
 export BRIER_MODEL_NAME=gpt-4o-mini
 export BRIER_API_KEY=sk-...your-key...
 export BRIER_MCP_SERVER=$PWD/mcp/server.py
 
-python app.py                            # the UI at http://localhost:7860
+python3 app.py                            # the UI at http://localhost:7860
 # or a one-shot query:
-python -m brier_agent "your request here"
+python3 -m brier_agent "your request here"
 ```
 
 **Launcher: `./run_ui.sh`.** Instead of exporting the model variables each time, put them in
@@ -143,7 +151,7 @@ Override the interpreter with `PYTHON=...` if `python3` is not your env's name.
 The same image runs a one-shot command-line query:
 
 ```
-docker compose run --rm agent python -m brier_agent "your request here"
+docker compose run --rm agent python3 -m brier_agent "your request here"
 ```
 
 ## Notes
