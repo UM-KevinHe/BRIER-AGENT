@@ -258,6 +258,22 @@ def chat_submit(
     if result.error:
         assistant_text += f"\n\n**Note:** {result.error}"
 
+    # Surface the ACTUAL error message from any failed tool call, so a stuck run can be
+    # debugged from the chat instead of showing only "tool (error)". Deduplicated, since a
+    # looping call repeats the same message. These are stripped from the model's history by
+    # _history_for_model (they are for the human).
+    errs, seen = [], set()
+    for tr in (result.tool_results or []):
+        r = tr.get("result")
+        if isinstance(r, dict) and r.get("status") != "ok":
+            msg = str(r.get("message") or r.get("error") or "").strip()
+            key = (tr["tool"], msg)
+            if msg and key not in seen:
+                seen.add(key)
+                errs.append(f"- `{tr['tool']}`: {msg}")
+    if errs:
+        assistant_text += "\n\n**Errors:**\n" + "\n".join(errs)
+
     # A compact, UI-only marker of which tools ran this turn.
     if result.tool_results:
         ran = ", ".join(
@@ -274,13 +290,13 @@ def chat_submit(
 
     history.append((user_msg, assistant_text))
 
-    # A simple table of the tool calls for the results panel.
+    # A table of the tool calls for the results panel, with the error message when present.
     tool_rows = [
         [
             tr["tool"],
-            tr["result"].get("status", "?")
-            if isinstance(tr["result"], dict)
-            else "?",
+            tr["result"].get("status", "?") if isinstance(tr["result"], dict) else "?",
+            (str(tr["result"].get("message") or tr["result"].get("error") or "")
+             if isinstance(tr["result"], dict) else "")[:300],
         ]
         for tr in result.tool_results
     ]
@@ -385,7 +401,7 @@ with gr.Blocks(title="BRIER-Agent", theme=gr.themes.Soft()) as demo:
         with gr.Column(scale=1, min_width=280):
             gr.Markdown("### Tools called")
             tools_out = gr.Dataframe(
-                headers=["tool", "status"],
+                headers=["tool", "status", "message"],
                 label="Tool calls this turn",
                 interactive=False,
                 wrap=True,
