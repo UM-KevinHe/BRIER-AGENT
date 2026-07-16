@@ -59,8 +59,7 @@ The working directory is the data folder itself, so the files are named directly
 
 The everyday case: you have individual-level data and one pretrained model to borrow from.
 
-> My working directory is `/path/to/BRIER-Agent/examples/data/individual` (replace
-> `/path/to/BRIER-Agent` with the absolute path to your checkout). I have an individual-level
+> My working directory is `/path/to/BRIER-Agent/examples/data/individual`. I have an individual-level
 > cohort: training predictors in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, a
 > validation split (`X_val.tsv.gz`, `y_val.tsv.gz`) and a test split (`X_test.tsv.gz`,
 > `y_test.tsv.gz`), and a pretrained external model `external_model.tsv.gz`. Build the best
@@ -74,8 +73,7 @@ The everyday case: you have individual-level data and one pretrained model to bo
 The target is a GWAS-style summary table rather than individual records, so the agent uses
 the summary module and builds the predictor correlations from the reference panel.
 
-> My working directory is `/path/to/BRIER-Agent/examples/data/summary` (replace
-> `/path/to/BRIER-Agent` with the absolute path to your checkout). My target is summary
+> My working directory is `/path/to/BRIER-Agent/examples/data/summary`. My target is summary
 > statistics in `sumstats.tsv.gz`, with a reference panel `reference_panel.tsv.gz` to estimate
 > predictor correlations from, a pretrained external model `external_model.tsv.gz`, and
 > held-out individual data for tuning and evaluation (`X_val.tsv.gz` / `y_val.tsv.gz` and
@@ -89,8 +87,7 @@ The distinctive case: more than one candidate external source. The agent integra
 tunes how much to borrow from each, and separates which sources actually help from which do
 not.
 
-> My working directory is `/path/to/BRIER-Agent/examples/data/individual` (replace
-> `/path/to/BRIER-Agent` with the absolute path to your checkout). I have an individual-level
+> My working directory is `/path/to/BRIER-Agent/examples/data/individual`. I have an individual-level
 > cohort: training predictors in `X_train.tsv.gz` with the outcome in `y_train.tsv.gz`, a
 > validation split (`X_val.tsv.gz`, `y_val.tsv.gz`) and a test split (`X_test.tsv.gz`,
 > `y_test.tsv.gz`). I also have three candidate external models: `external_model1.tsv.gz`,

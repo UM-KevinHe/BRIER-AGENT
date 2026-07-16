@@ -44,6 +44,12 @@ The simplest way to run the full agent: no GPU, no Docker, a hosted OpenAI-compa
 **Prerequisites:** Python 3.10+, an API key, and R (>= 4.0) with the BRIER package installed.
 Installing R and BRIER is a one-liner, covered in [`DEPLOY.md`](DEPLOY.md#installing-r-and-brier).
 
+**Easiest (macOS): double-click `BRIER-Agent.command`.** It creates the virtual environment
+and installs the Python dependencies on the first run, then starts the UI and opens it in your
+browser. Put your API settings in `.env.local` first (see below), and install R + BRIER once.
+(The first time, macOS may say it "cannot verify the developer": right-click the file ->
+Open -> Open, once.) The step-by-step version is below and works on any platform.
+
 Install the Python dependencies into a virtual environment (on macOS a Homebrew Python is
 "externally managed" and refuses a direct `pip install`; a venv or conda env avoids that, and
 gives you plain `python` / `pip`):
