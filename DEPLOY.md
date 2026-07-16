@@ -60,6 +60,16 @@ docker compose --profile local up
 The first start downloads the model weights (cached on the host at `HF_CACHE_DIR` so a
 restart does not re-fetch them), then the UI comes up at http://localhost:7860.
 
+**Pointing the agent at the local 7B.** With this profile the agent's endpoint defaults to
+`http://vllm:8000/v1` (the agent container reaches the vLLM container by its Compose service
+name `vllm`), model `Qwen/Qwen2.5-7B-Instruct`, and any API key (vLLM ignores it). The app
+does not auto-detect vLLM; it reads `BRIER_MODEL_ENDPOINT` at startup. So this is pre-filled
+only when you do not override that variable in `.env`. If your `.env` points at an external
+API, that value wins even with vLLM running: switch by editing the endpoint in the UI's
+"Model & connection" panel (and clicking "Test connection"), or set
+`BRIER_MODEL_ENDPOINT=http://vllm:8000/v1` before launch. If the agent runs natively rather
+than in Compose, use `http://localhost:8000/v1` instead (Compose publishes port 8000).
+
 ## Option C: run natively (no Docker)
 
 If you do not have Docker, or already have R and the BRIER package on the machine, run the

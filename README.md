@@ -108,6 +108,23 @@ Mac) the local 7B cannot be deployed at all, so only external endpoints are avai
 The "Test connection" button in that panel reports whether the current endpoint is reachable
 and which model it serves.
 
+The local 7B endpoint depends on where the agent runs relative to vLLM:
+
+| How you run it | Local 7B endpoint |
+|---|---|
+| Docker Compose (`docker compose --profile local up`, both containers) | `http://vllm:8000/v1` |
+| Agent natively, vLLM on the same host | `http://localhost:8000/v1` |
+| vLLM on a remote host | `http://<host>:8000/v1` |
+
+The model name is `Qwen/Qwen2.5-7B-Instruct`, and the key can be any value (vLLM ignores
+it). Inside Compose the agent reaches the vLLM container by its service name (`vllm`); from
+the host or a native run you use `localhost` because Compose publishes the port. The
+endpoint field does **not** auto-detect a running vLLM: it shows whatever
+`BRIER_MODEL_ENDPOINT` was set to when the app started. So with `docker compose --profile
+local up` and no override in `.env`, it is pre-filled with the vLLM endpoint; but if `.env`
+points at an external API, that value wins and you switch by editing the field (or setting
+`BRIER_MODEL_ENDPOINT` before launch).
+
 ## Use the BRIER tools in Claude or Codex (local data)
 
 If you already use Claude Desktop, Claude Code, or OpenAI Codex, you can drive the BRIER
