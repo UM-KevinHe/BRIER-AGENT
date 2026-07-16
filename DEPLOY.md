@@ -1,16 +1,42 @@
 # Deploying BRIER-Agent
 
-BRIER-Agent runs as one container: the agent, the bundled BRIER-MCP server, R, and the
-BRIER package. The model is not in that container. You choose where it lives, and that
-choice is the whole difference between the two deployments below. The tools, the analysis,
-and the correctness guarantees are identical either way.
+BRIER-Agent is the agent plus the bundled BRIER-MCP server, R, and the BRIER package. The
+model is separate: you choose where it lives (a hosted API, or a local GPU), and that choice,
+together with whether you run in Docker or directly on the host, is the whole difference
+between the options below. The tools, the analysis, and the correctness guarantees are
+identical across all of them.
+
+- [Option A: external API (no GPU)](#option-a-external-api-no-gpu) - Docker, a hosted model.
+- [Option B: local model (privacy / offline)](#option-b-local-model-privacy--offline-needs-a-gpu) - Docker + an NVIDIA GPU, model in-container.
+- [Option C: run directly, without Docker](#option-c-run-directly-without-docker) - the Quick
+  start path (`run_ui.sh`), a hosted model, R and BRIER on the host.
 
 ## Prerequisites
 
-- Docker with Compose.
-- For the local-model path only: an NVIDIA GPU and the NVIDIA Container Toolkit.
-- Your data in a host directory (mounted read-only at `/data`). Genotype/text/`.gz`
-  inputs; see the case docs for the expected roles.
+- For Options A and B (Docker): Docker with Compose. Option B also needs an NVIDIA GPU and
+  the NVIDIA Container Toolkit.
+- For Option C (run directly): Python 3.10+, and R with BRIER on the host (below). Docker is
+  not used.
+- Your data in a directory the agent can read (mounted read-only at `/data` in the Docker
+  options). Genotype/text/`.gz` inputs; see the case docs for the expected roles.
+
+## Installing R and BRIER
+
+The Docker options (A and B) install R and BRIER for you inside the image; you only need
+them on the host for Option C (run directly) and for the MCP-with-Claude/Codex paths. BRIER
+is on GitHub, not CRAN:
+
+```r
+# in R (>= 4.0)
+install.packages("remotes")
+remotes::install_github("UM-KevinHe/BRIER")
+```
+
+Then confirm everything the tools need is present:
+
+```
+python -m brier_agent.check_env
+```
 
 ## Check the environment
 
@@ -47,7 +73,7 @@ matrices never leave: the agent only ever sees tool outputs, not your data. For 
 that is fine. For a cohort whose summary statistics may not leave the premises, use Option
 B.
 
-## Option B: local model (privacy / air-gapped, needs a GPU)
+## Option B: local model (privacy / offline, needs a GPU)
 
 A vLLM service serves the model on an OpenAI-compatible endpoint inside the compose
 network, and the agent points at it. Nothing leaves the machine.

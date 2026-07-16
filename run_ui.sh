@@ -43,6 +43,15 @@ command -v "$PY" >/dev/null 2>&1 || {
   exit 1
 }
 
+# UI dependencies present? app.py needs gradio (+ gradio_client). If the one-time install has
+# not been run in this environment, fail with a clear hint instead of a cryptic
+# ModuleNotFoundError from deep inside the import.
+if ! "$PY" -c "import gradio" >/dev/null 2>&1; then
+  echo "ERROR: the UI dependencies are not installed for '$PY'." >&2
+  echo "Run once (in this environment):  $PY -m pip install -r requirements.txt" >&2
+  exit 1
+fi
+
 if [ "${1:-}" = "--detach" ] || [ "${1:-}" = "-d" ]; then
   LOG="${BRIER_UI_LOG:-/tmp/brier_ui.log}"
   nohup "$PY" app.py > "$LOG" 2>&1 &
