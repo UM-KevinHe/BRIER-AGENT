@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import traceback
 from pathlib import Path
 from typing import List, Optional, Tuple
@@ -190,11 +191,36 @@ def _make_agent(endpoint: str, model: str, api_key: str) -> BrierAgent:
                       include_tools=_agent_tools())
 
 
+# The assistant turns stored for the chatbot carry UI-only decorations: the
+# "<small>Tools: ...</small>" marker (which names failed tools) and a "**Note:** ..."
+# line for an aborted/errored run. Those are for the human to read, but the same string
+# is fed back to the MODEL as history -- and a small model that sees "prep_auto (error)"
+# in its own prior turns is primed to REPEAT the failure (a stray fumble snowballs into a
+# stuck loop). Strip them so the model's history holds only the substantive answer.
+_UI_MARKER_RE = re.compile(r"\n\n<small>.*?</small>\s*$", re.DOTALL)
+_UI_NOTE_RE = re.compile(r"\n\n\*\*Note:\*\*.*$", re.DOTALL)
+
+
+def _history_for_model(history_pairs):
+    """Return history with the UI-only tool/error markers stripped from assistant turns."""
+    cleaned = []
+    for entry in history_pairs or []:
+        if not isinstance(entry, (list, tuple)) or len(entry) < 2:
+            continue
+        u, a = entry[0], entry[1]
+        if a:
+            a = _UI_MARKER_RE.sub("", str(a))
+            a = _UI_NOTE_RE.sub("", a).strip()
+        cleaned.append((u, a))
+    return cleaned
+
+
 def _run_agent_sync(agent: BrierAgent, user_msg: str, data_path: Optional[str],
                     history_pairs):
     """Run one async agent turn from a sync Gradio handler."""
     return asyncio.run(
-        agent.run(user_msg, data_path=data_path, history=history_pairs)
+        agent.run(user_msg, data_path=data_path,
+                  history=_history_for_model(history_pairs))
     )
 
 
