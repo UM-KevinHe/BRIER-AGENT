@@ -71,7 +71,4 @@ hf-cache/
 /benchmark/
 /manual/
 /.claude/
-
-# Private supplementary docs (manuscript/dissertation material). Never tracked,
-# never published, never in the Docker image. See supp_docs/README.md.
-/supp_docs/
+/supp_docs/ref.md
