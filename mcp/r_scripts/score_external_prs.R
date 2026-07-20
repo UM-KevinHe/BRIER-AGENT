@@ -78,8 +78,20 @@ result <- tryCatch({
   # Decide whether beta carries a leading intercept row (the BRIERi
   # convention prepends one, so the vector is length ncol(X)+1). Auto-detect
   # from the length, with an optional explicit override.
+  intercept_note <- NULL
   if (!is.null(inp$has_intercept)) {
     used_intercept <- isTRUE(inp$has_intercept)
+    # Reconcile an explicit flag that CONTRADICTS an unambiguous length. A BRIERi
+    # external is p+1 (a prepended intercept row); a raw coef vector is p. A small
+    # model routinely guesses this flag wrong, so when the length settles it, the
+    # length wins and we note the override (rather than erroring on a guess).
+    if (used_intercept && length(beta) == p) {
+      used_intercept <- FALSE
+      intercept_note <- "has_intercept=TRUE overridden to FALSE (beta length == ncol(X))"
+    } else if (!used_intercept && length(beta) == p + 1) {
+      used_intercept <- TRUE
+      intercept_note <- "has_intercept=FALSE overridden to TRUE (beta length == ncol(X)+1, the BRIERi intercept row)"
+    }
   } else if (length(beta) == p + 1) {
     used_intercept <- TRUE
   } else if (length(beta) == p) {
@@ -127,7 +139,7 @@ result <- tryCatch({
     pred = preds, y = newy, criteria = inp$criteria
   ))
 
-  list(
+  out <- list(
     status = "ok",
     criteria = inp$criteria,
     metric_value = metric_value,
@@ -135,6 +147,8 @@ result <- tryCatch({
     used_intercept = used_intercept,
     p = p
   )
+  if (!is.null(intercept_note)) out$`_notice_intercept` <- intercept_note
+  out
 }, error = function(err) {
   make_error(
     msg = conditionMessage(err),

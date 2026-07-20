@@ -5750,7 +5750,8 @@ def prep_auto(
     roles: dict,
     standardize: bool = False,
     standardize_method: str = "sd",
-    outcome_family: str = "gaussian",
+    outcome_family: str = "auto",
+    external_coef_scale: str = "standardized",
     align_method: str = "auto",
     ld_ancestry: Optional[str] = None,
     ld_build: Optional[str] = None,
@@ -5811,7 +5812,10 @@ def prep_auto(
         SILENT corruption -- no error, just wrong numbers.
       * standardize_method: "sd" ((x-mean)/sd) or "maf" (center 2p, scale
         sqrt(2p(1-p))).
-      * outcome_family: only Gaussian y is standardized; binary/Poisson y never are.
+      * outcome_family: defaults to "auto" (detect from the response: a 0/1 two-level
+        outcome is binomial, else gaussian; the detected family is recorded on the
+        prepared object so the fitter and metrics follow it). Pass "binomial"/"poisson"
+        to force it. Only Gaussian y is standardized; binary/Poisson y never are.
       * align_method: "auto" (coordinate when the map has CHR/BP/REF/ALT, else
         names), "coordinate", or "varnames".
       * predictor_type: "auto" DETECTS it (a map with CHR + BP is a genome; nothing
@@ -5850,7 +5854,17 @@ def prep_auto(
                 cohort headers for brier_full).
         standardize: See above.
         standardize_method: "sd" or "maf".
-        outcome_family: "gaussian" | "binomial" | "poisson".
+        outcome_family: "auto" (default, detect from the response) | "gaussian" |
+            "binomial" | "poisson".
+        external_coef_scale: brier_i only. Which scale a user's PRETRAINED external
+            coefficients are on: "auto" (default), "standardized" (effect per 1 SD of
+            the predictor, what BRIER emits), or "raw" (effect per allele copy). BRIER
+            NEVER modifies the external, so this instead decides how the TARGET is fit:
+            a standardized external is met by a standardized target, a raw external by a
+            raw target. "auto" -> an external prep_auto fit itself is known standardized;
+            a user coefficient file is auto-detected structurally (conservative: defaults
+            to standardized, calls raw only on strong evidence). An explicit value skips
+            detection. Ignored by brier_s (standardized by nature) and brier_full.
         align_method: "auto" | "coordinate" | "varnames".
         ld_ancestry: Only for brier_s with a target_ld_panel. GENOTYPE ancestry
             ("AFR"/"EUR"/"EAS") selecting the Berisa LD blocks. Omit for
@@ -5927,6 +5941,7 @@ def prep_auto(
         "standardize": bool(standardize),
         "standardize_method": standardize_method,
         "outcome_family": outcome_family,
+        "external_coef_scale": external_coef_scale,
         "align_method": align_method,
         "ld_ancestry": ld_ancestry,
         "ld_build": ld_build,

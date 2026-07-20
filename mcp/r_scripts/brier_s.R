@@ -107,7 +107,6 @@ result <- tryCatch({
   }
 
   family_was_supplied <- !is.null(inp$family) && nzchar(inp$family)
-  family <- if (family_was_supplied) inp$family else "gaussian"
 
   # The REQUEST; resolved below once beta_external is loaded and M is known.
   multi_method_requested <- inp$multi_method
@@ -116,6 +115,12 @@ result <- tryCatch({
   # v0.11: multi-file support via load_data_files()
   resolved_paths <- resolve_data_paths_input(inp)
   env <- load_data_files(resolved_paths)
+
+  # Family: explicit arg wins; else recover from the prepared object (prep_auto records
+  # prepared$family), so an auto-detected binomial outcome is fit as logistic; else gaussian.
+  family <- if (family_was_supplied) inp$family else family_from_prepared(env)
+  family_source <- if (family_was_supplied) "supplied" else if (!is.null(family)) "prepared" else "default"
+  if (is.null(family)) family <- "gaussian"
   sumstats <- safe_eval(inp$sumstats_expr, env)
   beta_external <- safe_eval(inp$beta_external_expr, env)
 
@@ -357,7 +362,13 @@ result <- tryCatch({
   )
   out <- add_penalty_echo(out, inp, penalty_factor)
 
-  if (!family_was_supplied) {
+  if (identical(family_source, "prepared")) {
+    out$`_notice_family_from_prepared` <- sprintf(paste(
+      "Family was not supplied; recovered family='%s' from the prepared object.",
+      "Select and evaluate on the matching %s metrics."), family,
+      if (identical(family, "binomial")) "binomial (binomial.dev / binomial.auc)"
+      else if (identical(family, "poisson")) "poisson (poisson.dev)" else "gaussian")
+  } else if (identical(family_source, "default")) {
     out$`_notice_family_default` <- paste(
       "Family was not explicitly supplied; BRIERs used the gaussian default.",
       "If the outcome is binary or count, refit with family='binomial' or",

@@ -79,11 +79,15 @@ suppressPackageStartupMessages({
 # Post-call hint construction. Different surface than brier_i:
 # no multi.method here (BRIERfull doesn't take one), no intercept-row
 # shape check, but the cohort-vector check matters.
-.build_notices <- function(family_was_supplied, M_external, n_target,
+.build_notices <- function(family_source, family, M_external, n_target,
                             n_external_total, has_eta_zero) {
   notices <- list()
 
-  if (!family_was_supplied) {
+  if (identical(family_source, "prepared")) {
+    notices$`_notice_family_from_prepared` <- sprintf(paste(
+      "Family was not supplied; recovered family='%s' from the prepared object.",
+      "Select and evaluate on the matching metrics."), family)
+  } else if (identical(family_source, "default")) {
     notices$`_notice_family_default` <- paste(
       "Family was not explicitly supplied; BRIERfull used the gaussian default.",
       "If the outcome is binary or count, refit with family='binomial' or",
@@ -128,11 +132,16 @@ result <- tryCatch({
   }
 
   family_was_supplied <- !is.null(inp$family) && nzchar(inp$family)
-  family <- if (family_was_supplied) inp$family else "gaussian"
 
   # 1. Load data (v0.11: multi-file via load_data_files).
   resolved_paths <- resolve_data_paths_input(inp)
   env <- load_data_files(resolved_paths)
+
+  # Family: explicit arg wins; else recover from the prepared object (prep_auto records
+  # prepared$family), so an auto-detected binomial outcome is fit as logistic; else gaussian.
+  family <- if (family_was_supplied) inp$family else family_from_prepared(env)
+  family_source <- if (family_was_supplied) "supplied" else if (!is.null(family)) "prepared" else "default"
+  if (is.null(family)) family <- "gaussian"
 
   # 2. Resolve expression strings.
   X <- safe_eval(inp$X_expr, env)
@@ -288,7 +297,7 @@ result <- tryCatch({
   )
   out <- add_penalty_echo(out, inp, penalty_factor)
 
-  notices <- .build_notices(family_was_supplied, M_external, n_target,
+  notices <- .build_notices(family_source, family, M_external, n_target,
                              n_external_total, has_eta_zero)
   for (nm in names(notices)) out[[nm]] <- notices[[nm]]
 

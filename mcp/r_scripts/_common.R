@@ -423,6 +423,22 @@ safe_eval <- function(expr_str, env) {
 }
 
 
+# When a fitter is called WITHOUT a family arg, recover it from the prepared object
+# (prep_auto records prepared$family from the detected/declared outcome family), so a
+# binary outcome is not silently fit as gaussian. Scans the loaded env for a list with
+# a character $family member (same pattern brier_s uses to recover $XtX / $n_train).
+# Returns NULL if no prepared object carries a family.
+family_from_prepared <- function(env) {
+  for (v in ls(env)) {
+    obj <- tryCatch(get(v, envir = env), error = function(e) NULL)
+    if (is.list(obj) && is.character(obj[["family"]]) && nzchar(obj[["family"]][1])) {
+      return(obj[["family"]][1])
+    }
+  }
+  NULL
+}
+
+
 # --------------------------------------------------------------------------
 # Penalty knobs (shared by BRIERi / BRIERfull / BRIERs)
 # --------------------------------------------------------------------------

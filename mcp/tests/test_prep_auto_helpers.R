@@ -72,6 +72,16 @@ ok(identical(r2[["external_coef_2"]], "b.gz"), "external_2 -> external_coef_2")
 r3 <- .normalize_roles(list(target_sumstats = "real.gz", gwas = "other.gz"))
 ok(identical(r3[["target_sumstats"]], "real.gz"), "canonical role not overwritten")
 
+# NULL / empty-valued roles must be dropped (a small model nests non-role keys like ld_id:null
+# here; left in, they crash prep_auto with "argument is of length zero"). Mirrors the dispatch
+# backstop `roles <- Filter(function(v) !is.null(v) && length(v) > 0L, roles)`.
+rnull <- Filter(function(v) !is.null(v) && length(v) > 0L,
+                list(target_sumstats = "s.gz", ld_id = NULL, empty = character(0), snp_info = "i.gz"))
+ok(!("ld_id" %in% names(rnull)) && !("empty" %in% names(rnull)),
+   "NULL and length-0 role values are dropped by the dispatch backstop")
+ok(identical(rnull[["target_sumstats"]], "s.gz") && identical(rnull[["snp_info"]], "i.gz"),
+   "real role paths survive the NULL-drop")
+
 # =============================================================================
 section("raw-external detection + enumeration (Bucket B, M >= 1)")
 ok(.has_raw_external(list(external_sumstats = "a.gz")),                 "raw: unnumbered summary")
@@ -700,6 +710,63 @@ errs(.check_external_overlap(
      "a disjoint external ERRORS loudly instead of returning a silent all-zero vector")
 ok(.check_external_overlap(NULL, c("g1")) == 0L,
    "a NULL external is a no-op (the missing-external path handles it elsewhere)")
+
+section("external scale detection (external_coef_scale='auto', brier_i)")
+# STRUCTURAL detector: log|beta| vs log(sd) slope, ~0 standardized, ~-1 raw. sd is the
+# CONVENTIONAL EMPIRICAL sd of the predictors (never AF-derived). Conservative: default
+# standardized, flip to raw only on strong, well-populated evidence.
+set.seed(11)
+sdv <- runif(60, 0.2, 0.9)                       # predictor empirical sds
+b_std <- rnorm(60, 0, 0.1)                       # standardized: coef sizes independent of sd
+b_raw <- b_std / sdv                             # raw twin: beta_raw = beta_std / sd
+ok(.detect_external_scale(b_std, sdv)$scale == "standardized",
+   "a standardized coefficient vector detects as standardized (slope ~ 0)")
+ok(.detect_external_scale(b_raw, sdv)$scale == "raw",
+   "its raw twin detects as raw (slope ~ -1)")
+# below the nonzero-count floor -> decline to the safe default rather than read noise
+ok(.detect_external_scale(c(b_raw[1:4], rep(0, 56)), sdv)$scale == "standardized",
+   "too few nonzero coefficients -> defaults to standardized (does not guess raw)")
+# a borderline-negative slope (the AF/cross-ancestry confound band) must NOT be called raw
+b_soft <- b_std / (sdv^0.4)                       # slope ~ -0.4, ambiguous
+ok(.detect_external_scale(b_soft, sdv)$scale == "standardized",
+   "a mildly-negative slope stays standardized (only strong evidence flips to raw)")
+ok(is.finite(.detect_external_scale(b_raw, sdv)$slope) &&
+     .detect_external_scale(b_raw, sdv)$slope < -0.9,
+   "the reported slope for a raw vector is firmly negative")
+
+# multi-external agreement: detect EACH column; helper is per-vector, so simulate the caller's
+# aggregation. Two standardized columns agree; a standardized + a raw column disagree.
+scl <- function(b) .detect_external_scale(b, sdv)$scale
+b_std2 <- rnorm(60, 0, 0.1)
+ok(length(unique(c(scl(b_std), scl(b_std2)))) == 1L && scl(b_std) == "standardized",
+   "two standardized external columns agree on standardized")
+ok(length(unique(c(scl(b_std), scl(b_raw)))) == 2L,
+   "a standardized column and a raw column DISAGREE (caller then defaults to standardized + warns)")
+
+section("outcome-family detection")
+ok(.detect_family(c(0, 1, 1, 0, 1)) == "binomial",
+   "a 0/1 two-level response detects as binomial")
+ok(.detect_family(c(1.2, 3.4, 170.5, -2)) == "gaussian",
+   "a continuous response detects as gaussian")
+ok(.detect_family(c(0, 0, 0)) == "gaussian",
+   "an all-zero (one-level) response is NOT binomial (needs two levels)")
+ok(.detect_family(c(0, 1, NA, 1)) == "binomial",
+   "NA values are ignored in detection")
+ok(.detect_family(c(0, 1, 2, 1)) == "gaussian",
+   "0/1/2 dosages are NOT binary (three levels) -> gaussian")
+# .resolve_family: an explicit family always wins; only unspecified is detected.
+ok(.resolve_family("gaussian", c(0, 1, 0)) == "gaussian",
+   "an explicit gaussian is respected even on a 0/1 response")
+ok(.resolve_family("binomial", c(1.5, 2.5)) == "binomial",
+   "an explicit binomial is respected on a continuous response")
+ok(.resolve_family("poisson", c(0, 1)) == "poisson",
+   "an explicit poisson is respected")
+ok(.resolve_family("auto", c(0, 1, 1)) == "binomial",
+   "'auto' detects binomial from a 0/1 response")
+ok(.resolve_family("unknown", c(2.3, 4.1)) == "gaussian",
+   "an unrecognized family is treated as unspecified and detected (gaussian here)")
+ok(.resolve_family(NULL, c(0, 1)) == "binomial",
+   "a NULL family is detected")
 
 if (.fails == 0L) {
   cat(sprintf("prep_auto helpers: ALL %d CHECKS PASS\n", .checks))

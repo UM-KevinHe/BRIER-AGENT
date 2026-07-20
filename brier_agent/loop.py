@@ -1212,9 +1212,28 @@ def _format_stall_guard(name: str, n: int, has_prep: bool) -> str:
         f"correct shape and roles to assemble the fit-ready inputs."
     )
 
-# Default test-set comparison metric for the post-fit chain (R^2, comparable
-# across the transfer fit and the external-only score).
-_COMPARE_CRITERIA = "gaussian.rsq"
+# The post-fit chain's metrics must match the outcome family, or brier_*_selection
+# rejects the criteria (it validates the metric against the fit's family) and a
+# binomial run gets a linear-probability analysis. prep_auto now echoes the detected
+# family in its result, so the continuation hooks read it from last_prep.
+def _prep_family(last_prep) -> str:
+    """The outcome family prep_auto detected/declared (for choosing metrics).
+    Defaults to gaussian when unknown (e.g. an older prep result without the echo)."""
+    if not last_prep:
+        return "gaussian"
+    fam = (last_prep[1] or {}).get("outcome_family")
+    return fam if fam in ("gaussian", "binomial", "poisson") else "gaussian"
+
+
+def _sel_criteria(family: str) -> str:
+    """Default VALIDATION-selection metric for a family."""
+    return {"binomial": "binomial.dev", "poisson": "poisson.dev"}.get(family, "gaussian.mspe")
+
+
+def _report_criteria(family: str) -> str:
+    """Primary held-out reporting/comparison metric for a family (comparable across
+    the transfer fit and the external-only score)."""
+    return {"binomial": "binomial.auc", "poisson": "poisson.dev"}.get(family, "gaussian.rsq")
 
 
 def _expr_base(args: dict) -> str:
@@ -1273,6 +1292,7 @@ def _format_fit_followup(name: str, args: dict, result: dict, last_prep) -> str:
     dp = (args or {}).get("data_path", "")
     dp_arg = f', data_path="{dp}"' if dp else ""
     sp = _split_exprs(args, last_prep)
+    val_crit = _sel_criteria(_prep_family(last_prep))  # binomial.dev / gaussian.mspe / ...
 
     # An EXTERNAL-COHORT fit (a brier_full external-only comparator) must NOT be
     # selected on the TARGET's validation set: that leaks target data into a comparator
@@ -1284,7 +1304,7 @@ def _format_fit_followup(name: str, args: dict, result: dict, last_prep) -> str:
         own_x = hints.get(f"X_ext_{k_ext}_val_expr", "")
         own_y = hints.get(f"y_ext_{k_ext}_val_expr", "")
         if own_x and own_y:
-            select_line = (f'  fit_id="{fit_id}", criteria="gaussian.mspe", '
+            select_line = (f'  fit_id="{fit_id}", criteria="{val_crit}", '
                            f'X_val_expr="{own_x}", y_val_expr="{own_y}"{dp_arg}')
             how = ("on THAT COHORT'S OWN validation split (never the target's: this "
                    "comparator must stay purely external)")
@@ -1303,7 +1323,7 @@ def _format_fit_followup(name: str, args: dict, result: dict, last_prep) -> str:
     if sp["has_val"]:
         how = "on the VALIDATION set (a val split was assembled)"
         select_line = (
-            f'  fit_id="{fit_id}", criteria="gaussian.mspe", '
+            f'  fit_id="{fit_id}", criteria="{val_crit}", '
             f'X_val_expr="{sp["X_val"]}", y_val_expr="{sp["y_val"]}"{dp_arg}'
         )
     else:
@@ -1326,18 +1346,21 @@ def _format_selection_followup(args: dict, result: dict, last_prep) -> str:
     dp = (args or {}).get("data_path", "")
     dp_arg = f', data_path="{dp}"' if dp else ""
     sp = _split_exprs(args, last_prep)
+    fam = _prep_family(last_prep)
+    rep_crit = _report_criteria(fam)
+    fam_arg = f', family="{fam}"' if fam != "gaussian" else ""
     lines = [
         f'REMINDER: selection is done (selection_id="{sid}"). Do NOT stop: you '
         "must now score the fitted model on the held-out TEST set.",
         f'Call brier_evaluate with selection_id="{sid}", '
         f'newx_expr="{sp["X_test"]}", newy_expr="{sp["y_test"]}", '
-        f'criteria="{_COMPARE_CRITERIA}"{dp_arg}.',
+        f'criteria="{rep_crit}"{dp_arg}.',
     ]
     if sp["has_beta"]:
         lines.append(
             'Then ALSO score the external-only comparator: score_external_prs '
             f'with newx_expr="{sp["X_test"]}", newy_expr="{sp["y_test"]}", '
-            f'beta_expr="{sp["beta"]}", criteria="{_COMPARE_CRITERIA}"{dp_arg}. '
+            f'beta_expr="{sp["beta"]}", criteria="{rep_crit}"{fam_arg}{dp_arg}. '
             "If the transfer model does NOT beat the external-only score, say so "
             "and recommend running brier_s."
         )
@@ -1453,8 +1476,9 @@ def _format_brierfull_comparator(c: dict, last_prep) -> str:
     dp = prep_result.get("prepared_path", "")
     sp_test_x = hints.get("X_test_expr", "")
     sp_test_y = hints.get("y_test_expr", "")
+    fam = _prep_family(last_prep)
     if c["X_val"] and c["y_val"]:
-        how = (f'criteria="gaussian.mspe", X_val_expr="{c["X_val"]}", '
+        how = (f'criteria="{_sel_criteria(fam)}", X_val_expr="{c["X_val"]}", '
                f'y_val_expr="{c["y_val"]}"')
         why = "select it on its OWN validation split"
     else:
@@ -1477,7 +1501,8 @@ def _format_brierfull_comparator(c: dict, last_prep) -> str:
     if sp_test_x:
         lines.append(
             f'Then brier_evaluate it on the TARGET test set (newx_expr="{sp_test_x}", '
-            f'newy_expr="{sp_test_y}") so it can be compared like for like.'
+            f'newy_expr="{sp_test_y}", criteria="{_report_criteria(fam)}") so it can be '
+            "compared like for like."
         )
     return "\n".join(lines)
 
@@ -1487,13 +1512,15 @@ def _format_evaluate_followup(args: dict, last_prep) -> str:
     dp = (args or {}).get("data_path", "")
     dp_arg = f', data_path="{dp}"' if dp else ""
     sp = _split_exprs(args, last_prep)
+    fam = _prep_family(last_prep)
+    fam_arg = f', family="{fam}"' if fam != "gaussian" else ""
     return (
         "REMINDER: you have the transfer model's test metric but NOT yet the "
         "external-only comparator. Do NOT stop. Your NEXT action MUST be a tool "
         "call to score_external_prs to score the external model as-is on the "
         "same test set:\n"
         f'  newx_expr="{sp["X_test"]}", newy_expr="{sp["y_test"]}", '
-        f'beta_expr="{sp["beta"]}", criteria="{_COMPARE_CRITERIA}"{dp_arg}\n'
+        f'beta_expr="{sp["beta"]}", criteria="{_report_criteria(fam)}"{fam_arg}{dp_arg}\n'
         "Then compare the two metrics and, if the transfer model does not beat "
         "the external-only score, recommend running brier_s. Issue that call now."
     )

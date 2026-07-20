@@ -876,6 +876,47 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 }
 
 
+
+# Detect whether a USER-SUPPLIED pretrained external is on the standardized or the raw
+# predictor scale (brier_i, external_coef_scale="auto"). BRIER never modifies the external, so
+# this only decides whether the TARGET is standardized to meet it.
+#
+# The signal is STRUCTURAL and needs no y and no external data: since beta_std_j = beta_raw_j
+# * sd_j, regress log|beta_j| on log(sd_j) across the nonzero coefficients. A standardized
+# vector's coefficient sizes are independent of sd (slope ~ 0); a raw vector's grow as sd
+# shrinks (slope ~ -1). sd_j here is the CONVENTIONAL EMPIRICAL sd of the predictors
+# (stats::sd), the SAME definition standardization uses -- never the sqrt(2p(1-p)) frequency
+# form. The target's own X supplies it (the external's cohort never ships); target and external
+# sds correlate across the shared variants, so it is a proxy, which is why the call is
+# CONSERVATIVE.
+#
+# It is not a certifier: in genetics true effects often grow for rarer (low-sd) variants, which
+# also bends a genuinely standardized slope negative, and the target-sd proxy adds noise. So the
+# default is STANDARDIZED (BRIER's convention, and what our own fitted externals are), and we
+# override to "raw" ONLY on strong, well-populated evidence (slope firmly toward -1). Anything
+# ambiguous stays standardized. An explicit external_coef_scale skips this entirely.
+.detect_external_scale <- function(coef, sd_predictor, min_nz = 10, raw_cut = -0.9) {
+  nz <- which(is.finite(coef) & coef != 0 & is.finite(sd_predictor) & sd_predictor > 0)
+  if (length(nz) < min_nz) {
+    return(list(scale = "standardized", slope = NA_real_, n = length(nz),
+                reason = sprintf("too few nonzero coefficients (%d < %d) to detect; defaulting to standardized",
+                                 length(nz), min_nz)))
+  }
+  slope <- tryCatch(
+    unname(stats::coef(stats::lm(log(abs(coef[nz])) ~ log(sd_predictor[nz])))[2]),
+    error = function(e) NA_real_)
+  if (!is.finite(slope)) {
+    return(list(scale = "standardized", slope = slope, n = length(nz),
+                reason = "slope undefined; defaulting to standardized"))
+  }
+  is_raw <- slope < raw_cut
+  list(scale = if (is_raw) "raw" else "standardized", slope = slope, n = length(nz),
+       reason = sprintf(paste0("log|beta| vs log(sd) slope = %.2f over %d nonzero coefficients ",
+                               "(~0 standardized, ~-1 raw; cut %.2f) -> %s"),
+                        slope, length(nz), raw_cut, if (is_raw) "raw" else "standardized"))
+}
+
+
 # Match `tbl` to the reference map `ref`, by the predictor type's identity key.
 #
 # Returns, FOR EACH ROW OF `ref`:
@@ -1762,6 +1803,9 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     p <- .role_path(data_dir, sp$roles, sp$role)
     if (p %in% seen) next
     seen <- c(seen, p)
+    # The external is an INPUT: read it as-is and NEVER rescale it. Its scale drives how the
+    # TARGET is fit (see .resolve_external_scale / the brier_i standardize decision), which is
+    # what BRIER actually controls -- it does not modify the external model.
     singles[[length(singles) + 1]] <- .ensure_external_varnames(
       .read_role(data_dir, sp$roles, sp$role))
   }
@@ -2146,6 +2190,22 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
       !file.exists(xtr) || !file.exists(ytr)) {
     return(invisible(NULL))
   }
+  # If the target has its OWN GWAS summary statistics, it IS a summary target, and the
+  # individual X/y passed are the VALIDATION/TEST splits (for held-out scoring), not
+  # training. Do NOT flip to brier_i: keep brier_s and tell the model to re-map the roles.
+  # (A genuine individual target -- e.g. T2_afr-ind_eur-summary -- has no target_sumstats,
+  # so this guard does not fire and the brier_i steer below still runs.)
+  ss <- tryCatch(.role_path(data_dir, roles, "target_sumstats"), error = function(e) NULL)
+  if (!is.null(ss) && file.exists(ss) && !same_file("target_sumstats", "external_sumstats")) {
+    stop(paste0(
+      "shape='", shape, "' is CORRECT: the target has its OWN GWAS summary statistics ",
+      "(target_sumstats), so it is a SUMMARY target. But you also passed target_X_train ",
+      "+ target_y_train pointing at individual-level files: those are the target's ",
+      "held-out VALIDATION/TEST splits, not training data. Re-map them as ",
+      "target_X_val/target_y_val (and target_X_test/target_y_test), keep target_sumstats ",
+      "+ target_ld_panel + ld_ancestry + ld_build, and STAY on shape='brier_s'."
+    ), call. = FALSE)
+  }
   stop(paste0(
     "shape='", shape, "' was chosen, but the target has INDIVIDUAL-LEVEL data ",
     "(target_X_train + target_y_train both exist). BRIERs takes a SUMMARY target ",
@@ -2158,12 +2218,29 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 }
 
 
+# Detect the outcome family from the response when the caller did not name one.
+# A two-level 0/1 response is binomial; anything else defaults to gaussian (poisson
+# is never auto-detected, it must be named). This is the tool-side determinism a
+# small model cannot be trusted to supply: it routinely OMITS outcome_family, and
+# every downstream default is gaussian, so a case/control outcome silently gets a
+# linear-probability fit (wrong family, wrong metrics). Only an UNSPECIFIED family
+# ("auto"/"unknown"/NULL) is detected; an explicit gaussian/binomial/poisson wins.
+.detect_family <- function(y) {
+  y <- y[!is.na(y)]
+  if (length(y) && all(y %in% c(0, 1)) && length(unique(y)) == 2) "binomial" else "gaussian"
+}
+.resolve_family <- function(family, y) {
+  if (!is.null(family) && family %in% c("gaussian", "binomial", "poisson")) return(family)
+  .detect_family(y)
+}
+
 # ---- recipe: brier_i -------------------------------------------------------
 .recipe_brier_i <- function(data_dir, roles, standardize, standardize_method,
                             outcome_family, align_method, report,
                             ext_ld_ancestry = NULL, ext_ld_build = NULL,
                             coverage_min = NULL, predictor_type = "genotype",
-                            ambiguous = "resolve", af_margin = 0.1) {
+                            ambiguous = "resolve", af_margin = 0.1,
+                            external_coef_scale = "standardized") {
   .steer_if_summary_target(data_dir, roles, "brier_i")
   # Fill omitted val/test roles from the training filename's siblings (a frequent
   # small-model slip is to pass only train + external and drop the held-out splits).
@@ -2173,6 +2250,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 
   Xtr <- .geno_matrix(.read_role(data_dir, roles, "target_X_train"))
   ytr <- .pheno_vector(.read_role(data_dir, roles, "target_y_train"))
+  fam_specified <- !is.null(outcome_family) && outcome_family %in% c("gaussian", "binomial", "poisson")
+  outcome_family <- .resolve_family(outcome_family, ytr)
   snp <- .read_role(data_dir, roles, "snp_info", required = FALSE)
   if (is.null(snp)) {
     # snp_info is a GENOTYPE map: varnames PLUS CHR/BP/REF/ALT, for coordinate
@@ -2189,6 +2268,8 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   predictor_type <- .resolve_predictor_type(predictor_type, snp)
   report <- c(report, sprintf("loaded target train X %dx%d, y %d; predictor_type = %s",
                               nrow(Xtr), ncol(Xtr), length(ytr), predictor_type))
+  report <- c(report, sprintf("outcome family = %s (%s)", outcome_family,
+                              if (fam_specified) "as specified" else "auto-detected from the response"))
 
   al <- .align_target_externals(data_dir, roles, snp, align_method,
                                 family = outcome_family,
@@ -2206,6 +2287,52 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
                  sum(is.na(xcols))), call. = FALSE)
   }
   Xtr <- Xtr[, xcols, drop = FALSE]
+
+  # Rule 3: for BRIERi the TARGET is standardized IFF the external is on the standardized scale
+  # (BRIER never rescales the external -- its scale instead dictates how the target is fit). So
+  # resolve the external's scale and let it DRIVE `standardize`, overriding a value the model may
+  # have set by reflex. Resolution: an explicit external_coef_scale is authoritative; an external
+  # prep_auto FIT itself (Bucket B) is known standardized; a user coefficient file is auto-detected
+  # structurally (.detect_external_scale) using the target's own EMPIRICAL sds (never AF-derived).
+  ext_scale <- external_coef_scale
+  if (identical(external_coef_scale, "auto")) {
+    if (.has_raw_external(roles)) {
+      ext_scale <- "standardized"
+      scale_reason <- "external fit internally on the standardized scale"
+    } else if (!is.null(al$beta)) {
+      # With M>1 pretrained externals they all meet ONE target scale, so detect EACH column
+      # and require agreement. If they disagree the externals are on mixed scales, which a
+      # single target cannot match: default to standardized (the safe convention) and warn.
+      B <- as.matrix(al$beta)
+      sdp <- apply(Xtr, 2, stats::sd)
+      dets <- lapply(seq_len(ncol(B)), function(m) .detect_external_scale(as.numeric(B[, m]), sdp))
+      scales <- vapply(dets, function(d) d$scale, character(1))
+      if (length(unique(scales)) == 1L) {
+        ext_scale <- scales[1]
+        scale_reason <- if (ncol(B) > 1L)
+          sprintf("all %d external columns detected as %s (%s)", ncol(B), ext_scale, dets[[1]]$reason)
+        else dets[[1]]$reason
+      } else {
+        ext_scale <- "standardized"
+        scale_reason <- sprintf(paste0(
+          "_notice_external_scale_disagree: the %d external columns DISAGREE on scale (%s); a ",
+          "single target cannot match both. Defaulting to standardized -- harmonize the externals ",
+          "to one scale, or set external_coef_scale explicitly. Per-column slopes: %s"),
+          ncol(B), paste(scales, collapse = "/"),
+          paste(sprintf("%.2f", vapply(dets, function(d) d$slope, numeric(1))), collapse = ", "))
+      }
+    } else {
+      ext_scale <- "standardized"
+      scale_reason <- "no external coefficients to inspect; defaulting to standardized"
+    }
+  } else {
+    scale_reason <- "declared by the caller"
+  }
+  want_std <- identical(ext_scale, "standardized")
+  report <- c(report, sprintf(
+    "external_coef_scale=%s -> external is %s-scale, so the target is fit on the %s scale (standardize=%s); %s",
+    external_coef_scale, ext_scale, ext_scale, want_std, scale_reason))
+  standardize <- want_std
 
   has_val <- !is.null(roles[["target_X_val"]])
   has_test <- !is.null(roles[["target_X_test"]])
@@ -2284,7 +2411,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
                               nrow(beta), ncol(beta)))
 
   prepared <- list(X = Xtr, y = ytr, beta_external = beta,
-                   surv_varnames = surv_orig_varnames)
+                   surv_varnames = surv_orig_varnames, family = outcome_family)
   if (has_val) { prepared$X_val <- Xva; prepared$y_val <- yva }
   if (has_test) { prepared$X_test <- Xte; prepared$y_test <- yte }
 
@@ -2302,7 +2429,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     hints$y_test_expr <- "prepared$y_test"
   }
 
-  list(prepared = prepared, report = report, expr_hints = hints)
+  list(prepared = prepared, report = report, expr_hints = hints, outcome_family = outcome_family)
 }
 
 
@@ -2433,6 +2560,19 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     ld <- .read_role(data_dir, roles, "target_ld")
     if (is.list(ld) && !is.null(ld$XtX)) {
       ld <- ld$XtX
+    } else if (!.looks_like_ld_matrix(ld)) {
+      # The caller named a reference genotype PANEL as target_ld (a prebuilt LD). Both
+      # roles are "the LD thing", so a small model swaps them; left alone, the panel's
+      # sample-id rownames would not match the variant names and every SNP would be
+      # "not found in LD rownames". The object says what it is (rectangular, not a
+      # square symmetric variant-named matrix), so BUILD the LD from it, exactly as the
+      # target_ld_panel branch would (genotype needs ld_ancestry/ld_build; the guard
+      # inside .build_ld_from_panel gives an actionable error if they are missing).
+      built <- .build_ld_from_panel(ld, snp, ancestry = ld_ancestry, build = ld_build)
+      ld <- built$XtX
+      report <- c(report, sprintf(
+        "target_ld was a reference panel, not a prebuilt LD; built the LD from it (%s), %dx%d",
+        built$mode, nrow(ld), ncol(ld)))
     }
   } else if (!is.null(roles[["target_ld_panel"]])) {
     panel_obj <- .read_role(data_dir, roles, "target_ld_panel")
@@ -2537,6 +2677,23 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
                             predictor_type = predictor_type,
                             ambiguous = ambiguous, af_margin = af_margin)
   tgt_panel_map <- snp[al_t$keep, , drop = FALSE]
+
+  # Resolve the outcome family (detect binary when unspecified) BEFORE loading/fitting
+  # the external, which needs the family. BRIERs carries no training y in the fit, so
+  # detect from whichever response split is shipped.
+  fam_specified <- !is.null(outcome_family) && outcome_family %in% c("gaussian", "binomial", "poisson")
+  if (!fam_specified) {
+    fam_y <- NULL
+    for (yr in c("target_y_train", "target_y_val", "target_y_test")) {
+      if (!is.null(roles[[yr]])) {
+        fam_y <- tryCatch(.pheno_vector(.read_role(data_dir, roles, yr)), error = function(e) NULL)
+        if (!is.null(fam_y)) break
+      }
+    }
+    outcome_family <- .detect_family(fam_y)
+  }
+  report <- c(report, sprintf("outcome family = %s (%s)", outcome_family,
+                              if (fam_specified) "as specified" else "auto-detected from the response"))
 
   # GENERIC predictors have no coordinates to attach, so the external is matched by NAME
   # (see .align_target_externals for the same branch on the individual path).
@@ -2717,7 +2874,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   }
   prepared <- list(sumstats = al$sumstats, XtX = ld_sub, beta_external = beta,
                    snp_info = snp[keep, , drop = FALSE], ld_keep = keep,
-                   n_train = n_train)
+                   n_train = n_train, family = outcome_family)
   if (has_val) { prepared$X_val <- Xva; prepared$y_val <- yva }
   if (has_test) { prepared$X_test <- Xte; prepared$y_test <- yte }
 
@@ -2733,7 +2890,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     hints$y_test_expr <- "prepared$y_test"
   }
 
-  list(prepared = prepared, report = report, expr_hints = hints)
+  list(prepared = prepared, report = report, expr_hints = hints, outcome_family = outcome_family)
 }
 
 
@@ -2760,6 +2917,10 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   # it into place. Nothing wide is materialized twice.
   Xt_path <- .role_path(data_dir, roles, "target_X_train")
   yt <- .pheno_vector(.read_role(data_dir, roles, "target_y_train"))
+  fam_specified <- !is.null(outcome_family) && outcome_family %in% c("gaussian", "binomial", "poisson")
+  outcome_family <- .resolve_family(outcome_family, yt)
+  report <- c(report, sprintf("outcome family = %s (%s)", outcome_family,
+                              if (fam_specified) "as specified" else "auto-detected from the response"))
 
   ext_paths <- list(); ext_y <- list()
   k <- 1
@@ -2830,22 +2991,33 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
               dimnames = list(NULL, common))
   cohort <- integer(total)
 
-  # Target block first (cohort 0). The standardizer is fit on the RAW target and
-  # then applied to every cohort as it streams in.
+  # BRIERfull standardizes WITHIN EACH COHORT, each by its OWN moments. A pooled cohort's
+  # genotypes are only comparable once each is on its own standardized scale: allele
+  # frequencies differ between cohorts, so applying one cohort's constants to another
+  # distorts it, variant by variant (the same cross-cohort error the brier_i external-scale
+  # rule avoids). The TARGET's standardizer (cohort 0) is retained for the target val/test
+  # splits; each external cohort's is retained for that cohort's own external-val split.
+  # y is standardized only for a gaussian outcome (never binary/Poisson), also per cohort.
+  std_on <- isTRUE(standardize)
+  std_y  <- std_on && identical(outcome_family, "gaussian")
+  .fit_y <- function(v) { m <- mean(v); s <- stats::sd(v); if (s == 0) s <- 1; list(mu = m, sd = s) }
+
+  # Target block (cohort 0), by its own moments.
   Xt <- .read_geno_cols(Xt_path, common)
   if (nrow(Xt) != nt) {
     stop(sprintf("target_X_train has %d rows but target_y_train has %d",
                  nrow(Xt), nt), call. = FALSE)
   }
-  st <- NULL
-  if (isTRUE(standardize)) {
-    st <- .fit_standardizer(Xt, standardize_method)
-    Xt <- .apply_standardizer(Xt, st)
-  }
+  st <- NULL; yc0 <- NULL
+  if (std_on) { st <- .fit_standardizer(Xt, standardize_method); Xt <- .apply_standardizer(Xt, st) }
+  if (std_y)  { yc0 <- .fit_y(yt); yt <- (yt - yc0$mu) / yc0$sd }
   X[seq_len(nt), ] <- Xt
   rm(Xt)
   gc(verbose = FALSE)
 
+  # Each external cohort by ITS OWN moments; keep them for the per-cohort external val below.
+  st_ext <- vector("list", n_ext)
+  yc_ext <- vector("list", n_ext)
   off <- nt
   for (i in seq_len(n_ext)) {
     Xe <- .read_geno_cols(ext_paths[[i]], common)
@@ -2853,31 +3025,22 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
       stop(sprintf("external_X_%d has %d rows but external_y_%d has %d",
                    i, nrow(Xe), i, ne[i]), call. = FALSE)
     }
-    if (isTRUE(standardize) && !is.null(st)) Xe <- .apply_standardizer(Xe, st)
+    if (std_on) { st_ext[[i]] <- .fit_standardizer(Xe, standardize_method)
+                  Xe <- .apply_standardizer(Xe, st_ext[[i]]) }
+    if (std_y)  { yc_ext[[i]] <- .fit_y(ext_y[[i]])
+                  ext_y[[i]] <- (ext_y[[i]] - yc_ext[[i]]$mu) / yc_ext[[i]]$sd }
     X[(off + 1):(off + ne[i]), ] <- Xe
     cohort[(off + 1):(off + ne[i])] <- i
     off <- off + ne[i]
     rm(Xe)
     gc(verbose = FALSE)
   }
-  # For a Gaussian outcome on standardized data, y must be standardized too (the
-  # model / evaluation are on the standardized scale); never for binary/Poisson.
-  # Use the TARGET training y (cohort 0) mean/sd as the reference, mirroring
-  # brier_i, and reuse it for the val/test y below.
-  y_mu <- NULL; y_sd <- NULL
-  if (isTRUE(standardize) && identical(outcome_family, "gaussian")) {
-    y_mu <- mean(yt); y_sd <- stats::sd(yt); if (y_sd == 0) y_sd <- 1
-  }
+  # yt and each ext_y were standardized IN PLACE above (per cohort), so the stack is ready.
   y <- do.call(c, c(list(yt), ext_y))
-  if (!is.null(y_mu)) {
-    y <- (y - y_mu) / y_sd
-  }
-  if (isTRUE(standardize)) {
-    report <- c(report, sprintf("standardized all cohorts (target constants, method=%s)",
+  if (std_on) {
+    report <- c(report, sprintf("standardized each cohort by its OWN moments (method=%s)",
                                 standardize_method))
-    if (!is.null(y_mu)) {
-      report <- c(report, "standardized Gaussian y (target training mean/sd)")
-    }
+    if (std_y) report <- c(report, "standardized Gaussian y per cohort (each cohort's own mean/sd)")
   }
   report <- c(report, sprintf("stacked X %dx%d, cohort vector (0=target,1..%d)",
                               nrow(X), ncol(X), n_ext))
@@ -2887,15 +3050,16 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
   # external coefficients in the brier_full shape (raw cohorts), so external-only
   # performance must be FIT, not scored. See the comparison workflow in prompts.
   prepared <- list(X = X, y = y, cohort = cohort, snp_info = common,
-                   beta_zero = matrix(0, nrow = ncol(X) + 1L, ncol = 1L))
+                   beta_zero = matrix(0, nrow = ncol(X) + 1L, ncol = 1L),
+                   family = outcome_family)
 
-  # Optional AFR val/test splits for held-out selection / scoring, subset to the
-  # shared panel and standardized to the TRAINING scale when standardize=TRUE.
-  .split <- function(xr, yr) {
+  # A held-out split, standardized to ITS cohort's training scale (default: the target's,
+  # for the target val/test; a per-cohort external val passes that cohort's own st_use/yc_use).
+  .split <- function(xr, yr, st_use = st, yc_use = yc0) {
     Xs <- .read_geno_cols(.role_path(data_dir, roles, xr), common)
-    if (isTRUE(standardize) && !is.null(st)) Xs <- .apply_standardizer(Xs, st)
+    if (std_on && !is.null(st_use)) Xs <- .apply_standardizer(Xs, st_use)
     ys <- .pheno_vector(.read_role(data_dir, roles, yr))
-    if (!is.null(y_mu)) ys <- (ys - y_mu) / y_sd   # Gaussian y -> training scale
+    if (std_y && !is.null(yc_use)) ys <- (ys - yc_use$mu) / yc_use$sd   # Gaussian y -> cohort scale
     list(X = Xs, y = ys)
   }
   has_val <- !is.null(roles[["target_X_val"]]) && !is.null(roles[["target_y_val"]])
@@ -2911,16 +3075,17 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
 
   # Optional PER-COHORT external validation splits. If external cohort k ships its
   # own validation data (external_X_k_val / external_y_k_val), expose it, subset to
-  # the shared panel and standardized to the SAME training constants as the stacked
-  # X. This lets the EXTERNAL-ONLY comparator for cohort k be selected on its OWN
-  # held-out data (gaussian.mspe) instead of by BIC. Note: selecting an external-only
-  # model on the TARGET val would leak target information into a comparator meant to
-  # be purely external, so each external val is used only for its own cohort.
+  # the shared panel and standardized to COHORT k's OWN training constants (st_ext[[k]] /
+  # yc_ext[[k]]), matching how cohort k was standardized in the stack -- NOT the target's.
+  # This lets the EXTERNAL-ONLY comparator for cohort k be selected on its OWN held-out
+  # data (gaussian.mspe) instead of by BIC. Note: selecting an external-only model on the
+  # TARGET val would leak target information into a comparator meant to be purely external,
+  # so each external val is used only for its own cohort.
   ext_has_val <- logical(n_ext)
   for (k in seq_len(n_ext)) {
     xr <- sprintf("external_X_%d_val", k); yr <- sprintf("external_y_%d_val", k)
     if (!is.null(roles[[xr]]) && !is.null(roles[[yr]])) {
-      s <- .split(xr, yr)
+      s <- .split(xr, yr, st_use = st_ext[[k]], yc_use = yc_ext[[k]])
       prepared[[sprintf("X_ext_%d_val", k)]] <- s$X
       prepared[[sprintf("y_ext_%d_val", k)]] <- s$y
       ext_has_val[k] <- TRUE
@@ -2966,7 +3131,7 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
       n_ext_val))
   }
 
-  list(prepared = prepared, report = report, expr_hints = hints)
+  list(prepared = prepared, report = report, expr_hints = hints, outcome_family = outcome_family)
 }
 
 
@@ -2980,6 +3145,13 @@ result <- tryCatch({
   shape <- inp$shape
   data_dir <- inp$data_dir
   roles <- .normalize_roles(inp$roles)
+  # Drop NULL / empty-valued entries. A small model nests non-role keys here (e.g.
+  # ld_id: null, or a fitter arg with no value), and a role whose value is NULL or a
+  # length-0 vector is not a file path -- left in, it reaches an nzchar()/if() on a
+  # zero-length argument and crashes prep_auto with the opaque "argument is of length
+  # zero" instead of any actionable message. This is a general backstop; specific
+  # nested PARAMS are also lifted/stripped below.
+  roles <- Filter(function(v) !is.null(v) && length(v) > 0L, roles)
 
   # A small model frequently nests the top-level PARAMS inside the roles map (roles
   # is a free-form dict, so nothing stops it). Left alone, they are silently ignored
@@ -2999,7 +3171,23 @@ result <- tryCatch({
                   else "auto"
   outcome_family <- if (!is.null(inp$outcome_family)) inp$outcome_family
                     else if (!is.null(.nested("outcome_family"))) .nested("outcome_family")
-                    else "gaussian"
+                    else "auto"   # unspecified: each recipe detects it from the response
+  # Which scale a user's PRETRAINED external coefficients are on. This is a brier_i concern:
+  # BRIER NEVER modifies the external, so its scale instead determines whether the TARGET is
+  # standardized (a standardized external must meet a standardized target; a raw external, a
+  # raw target). "auto" (default): a external prep_auto FIT itself is known standardized; a
+  # user-supplied coefficient file is auto-detected structurally. An explicit value from the
+  # user SKIPS detection and is authoritative.
+  external_coef_scale <- if (!is.null(inp$external_coef_scale)) inp$external_coef_scale
+                         else if (!is.null(.nested("external_coef_scale"))) .nested("external_coef_scale")
+                         else "auto"
+  if (!external_coef_scale %in% c("auto", "standardized", "raw")) {
+    stop(sprintf(paste0(
+      "external_coef_scale must be 'auto', 'standardized' or 'raw', got '%s'. It declares the ",
+      "scale a PRETRAINED external's coefficients were fitted on: 'standardized' = effect per 1 ",
+      "SD of the predictor (what BRIER emits), 'raw' = effect per allele copy, 'auto' = detect."),
+      external_coef_scale), call. = FALSE)
+  }
   # The coverage threshold (PREP_AUTO_DESIGN.md 3.1). A PARAMETER, never hard-coded: the
   # default lives in .COVERAGE_MIN_DEFAULT and BRIER_MCP_COVERAGE_MIN overrides it for the
   # operator. Nested-in-roles is lifted like the other params.
@@ -3012,7 +3200,13 @@ result <- tryCatch({
   predictor_type <- if (!is.null(inp$predictor_type)) inp$predictor_type
                     else if (!is.null(.nested("predictor_type"))) .nested("predictor_type")
                     else "auto"
+  # Strip params the model NESTED in roles by mistake, so they are not mistaken for file
+  # roles. external_coef_scale is resolved above (3174); family/ld_id/multi_method are FITTER
+  # args a small model wrongly puts here and prep_auto does not use. NOTE: ld_ancestry /
+  # ld_build / external_ld_* are lifted from roles further DOWN (3205+), so they are stripped
+  # THERE, not here -- removing them now would break that lift.
   for (k in c("standardize", "standardize_method", "align_method", "outcome_family",
+              "external_coef_scale", "multi_method", "family", "ld_id",
               "persist", "out_dir", "timeout_s", "shape", "data_dir", "coverage_min",
               "predictor_type")) {
     roles[[k]] <- NULL
@@ -3114,7 +3308,7 @@ result <- tryCatch({
   }
   rec <- switch(
     shape,
-    brier_i    = .recipe_brier_i(data_dir, roles, standardize, standardize_method, outcome_family, align_method, report, ext_ld_ancestry, ext_ld_build, coverage_min, predictor_type),
+    brier_i    = .recipe_brier_i(data_dir, roles, standardize, standardize_method, outcome_family, align_method, report, ext_ld_ancestry, ext_ld_build, coverage_min, predictor_type, external_coef_scale = external_coef_scale),
     brier_s    = .recipe_brier_s(data_dir, roles, standardize, standardize_method, outcome_family, report, ld_ancestry, ld_build, ext_ld_ancestry, ext_ld_build, coverage_min, predictor_type),
     brier_full = .recipe_brier_full(data_dir, roles, standardize, standardize_method, outcome_family, report, coverage_min),
     stop(sprintf("unknown shape: %s", shape), call. = FALSE)
@@ -3160,6 +3354,8 @@ result <- tryCatch({
   list(status = "ok", shape = shape,
        prepared_path = if (is.null(prepared_path)) NA_character_ else prepared_path,
        standardize = standardize, standardize_method = standardize_method,
+       outcome_family = if (!is.null(rec$outcome_family)) rec$outcome_family else outcome_family,
+       external_coef_scale = external_coef_scale,
        expr_hints = rec$expr_hints, report = rec$report,
        external_fits = if (length(ext_fits)) ext_fits else NULL,
        n_external_fits = length(ext_fits))

@@ -128,6 +128,15 @@ _ns3: dict = {
     "_ETA_CEILING_FACTOR": 5.0,
     "_OMIT_ETA_LIST": "OMIT eta_list entirely: the default eta grid is "
                       "log-spaced and ALREADY includes eta=0.",
+    # Family-aware criteria helpers (mirror the module; gaussian default preserves
+    # the pre-binomial behavior the gaussian-case tests assert).
+    "_prep_family": (lambda lp: (lp[1] or {}).get("outcome_family")
+                     if lp and (lp[1] or {}).get("outcome_family")
+                     in ("gaussian", "binomial", "poisson") else "gaussian"),
+    "_sel_criteria": (lambda f: {"binomial": "binomial.dev",
+                                 "poisson": "poisson.dev"}.get(f, "gaussian.mspe")),
+    "_report_criteria": (lambda f: {"binomial": "binomial.auc",
+                                    "poisson": "poisson.dev"}.get(f, "gaussian.rsq")),
 }
 exec(_src[_start3:_end3], _ns3)
 _grid_max = _ns3["_grid_max"]

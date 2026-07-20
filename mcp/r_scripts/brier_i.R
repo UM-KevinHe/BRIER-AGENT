@@ -88,10 +88,17 @@ suppressPackageStartupMessages({
 # Post-call hint construction
 # --------------------------------------------------------------------------
 
-.build_notices <- function(family_was_supplied, multi_method, M_external) {
+.build_notices <- function(family_source, family, multi_method, M_external) {
   notices <- list()
 
-  if (!family_was_supplied) {
+  if (identical(family_source, "prepared")) {
+    notices$`_notice_family_from_prepared` <- sprintf(paste(
+      "Family was not supplied; recovered family='%s' from the prepared object",
+      "(prep_auto's detected/declared outcome family). Selection and evaluation",
+      "should use the matching %s metrics."), family,
+      if (identical(family, "binomial")) "binomial (binomial.dev / binomial.auc)"
+      else if (identical(family, "poisson")) "poisson (poisson.dev)" else "gaussian")
+  } else if (identical(family_source, "default")) {
     notices$`_notice_family_default` <- paste(
       "Family was not explicitly supplied; BRIERi used the gaussian default.",
       "If the outcome is binary or count, refit with family='binomial' or",
@@ -136,7 +143,6 @@ result <- tryCatch({
   }
 
   family_was_supplied <- !is.null(inp$family) && nzchar(inp$family)
-  family <- if (family_was_supplied) inp$family else "gaussian"
 
   # The REQUEST. It is resolved below, once beta_external is loaded and M is known:
   # the default depends on M (see resolve_multi_method in _common.R). An explicit value
@@ -146,6 +152,13 @@ result <- tryCatch({
   # 1. Load data (v0.11: multi-file via load_data_files).
   resolved_paths <- resolve_data_paths_input(inp)
   env <- load_data_files(resolved_paths)
+
+  # Resolve the family: an explicit arg wins; else recover it from the prepared object
+  # (prep_auto records prepared$family), so an auto-detected binomial outcome is fit as
+  # logistic even when the model omits family; else fall back to gaussian.
+  family <- if (family_was_supplied) inp$family else family_from_prepared(env)
+  family_source <- if (family_was_supplied) "supplied" else if (!is.null(family)) "prepared" else "default"
+  if (is.null(family)) family <- "gaussian"
 
   # 2. Resolve expression strings inside that environment.
   X <- safe_eval(inp$X_expr, env)
@@ -319,7 +332,7 @@ result <- tryCatch({
   )
   out <- add_penalty_echo(out, inp, penalty_factor)
 
-  notices <- .build_notices(family_was_supplied, multi_method, M_external)
+  notices <- .build_notices(family_source, family, multi_method, M_external)
   for (nm in names(notices)) out[[nm]] <- notices[[nm]]
 
   if (baseline_auto_ind_applied) {
