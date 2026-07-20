@@ -5,7 +5,7 @@ FastMCP server that bridges Claude Desktop (or any MCP client) to the
 BRIER R package. Each tool shells out to Rscript via a temp JSON file;
 no statistical logic lives in this module.
 
-Current tool surface (v2.4.0):
+Current tool surface (v2.5.0):
   * start_analysis         - guided data-first wizard.
   * get_workflow_guide     - return the full phase-by-phase BRIER workflow guide (AGENTS.md).
   * inspect_data           - peek at the structure of a local .rda/.RData/.rds file.
@@ -86,7 +86,7 @@ from typing import Optional
 from mcp.server.fastmcp import FastMCP
 
 # Server version. Keep in sync with manifest.json and pyproject.toml.
-__version__ = "2.4.0"
+__version__ = "2.5.0"
 
 # --------------------------------------------------------------------------
 # Paths and Rscript discovery
