@@ -280,13 +280,13 @@ Set them ONLY on an explicit request: `penalty="MCP"`/`"SCAD"` (+ optional
 - Apply a fitted model to new genotypes -> `brier_predict`.
 - Score a fitted model on a new (X, y) pair -> `brier_evaluate`.
 - Score a RAW external coefficient vector directly on an (X, y) pair (the
-  external PRS as-is, no fitting) -> `score_external_prs`. Use it to build the
+  external PRS as-is, no fitting) -> `score_external_models`. Use it to build the
   external-only comparator below. The genotypes must be on the same scale the
   external was trained on (e.g. the standardized `X_test` from `prep_auto`).
 
 Metrics by outcome family. When you REPORT held-out (validation/test) performance,
 always report BOTH metrics for the family, not one (call `brier_evaluate` /
-`score_external_prs` once per metric):
+`score_external_models` once per metric):
 - gaussian: R^2 (`gaussian.rsq`) AND MSPE (`gaussian.mspe`).
 - binomial: AUC (`binomial.auc`) AND deviance (`binomial.dev`).
 - poisson: deviance (`poisson.dev`) (its primary metric; report the deviance).
@@ -329,7 +329,7 @@ sequence (each step is one tool call; do not narrate it, call it):
    AFR-only fit); the baseline is always this separate single-cohort `brier_i`.
 5. Score the EXTERNAL-only comparator(s) on TEST. HOW depends on the shape:
    - `brier_i` / `brier_s` (the external IS a pretrained coefficient matrix):
-     score each external model directly with `score_external_prs` (no fitting).
+     score each external model directly with `score_external_models` (no fitting).
      If the external has ONE column, score it once. If it has MULTIPLE columns
      (M > 1), score EACH column SEPARATELY, passing the m-th column as
      `beta_expr` (e.g. `"<beta>[, 1]"`, `"<beta>[, 2]"`, ...), and report one

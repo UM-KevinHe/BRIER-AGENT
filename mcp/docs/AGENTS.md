@@ -74,7 +74,7 @@ complementary: this sets the rhythm, the profile sets the walls.
    `corr`, flipping alleles, building an LD, fitting an external), STOP -- a tool
    almost certainly covers it, and a hand-rolled formula is a silent-error risk.
    The validated fitting/evaluation tools (`brier_i`, `brier_s`, `brier_full`,
-   the selection tools, `brier_evaluate`, `score_external_prs`, `summarize_fit`)
+   the selection tools, `brier_evaluate`, `score_external_models`, `summarize_fit`)
    should ALWAYS be used; never hand-compute a fit or a metric.
 
 5. **Inspecting all files needs the right surface for each type.** Use
@@ -102,7 +102,7 @@ discrimination).
 - **Binary (binomial):** `binomial.auc` (AUC) **and** `binomial.dev` (deviance).
 - **Count (poisson):** `poisson.dev` (deviance) -- its primary metric.
 
-Call `brier_evaluate` (or `score_external_prs`) ONCE PER METRIC; never
+Call `brier_evaluate` (or `score_external_models`) ONCE PER METRIC; never
 hand-compute one.
 
 **Read the two metrics differently, because they are not the same kind of
@@ -372,7 +372,7 @@ metric:
    evaluated on the target test set. HOW depends on the external's form:
    - Pretrained COEFFICIENTS (`brier_i` / `brier_s`): score each external
      coefficient vector directly on the target test set with
-     `score_external_prs` (no fitting). With M>1 externals, score each column
+     `score_external_models` (no fitting). With M>1 externals, score each column
      separately and report one metric per external.
    - RAW individual-level cohorts (`brier_full`): there is NO coefficient vector,
      so FIT an external-only model, one per external cohort: fit at eta=0 on that

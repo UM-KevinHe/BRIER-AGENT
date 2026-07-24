@@ -398,8 +398,30 @@ _NULL_FILL_SENTINELS: Dict[str, tuple] = {
 }
 
 
+def _is_null_like(v: Any) -> bool:
+    """A placeholder a model writes for an optional it means to omit: None, or a string
+    like "NULL" / "None" / "NA" / "" (case-insensitive). Distinct from a MEANINGFUL zero
+    (0, [], [0]) -- those are handled by the per-key sentinels, not here."""
+    return v is None or (
+        isinstance(v, str) and v.strip().lower() in ("", "null", "none", "na", "nan"))
+
+
+def _unwrap_value(v: Any) -> Any:
+    """Unwrap a scalar that a model emitted as a typed envelope, e.g.
+    ``{"type": "string", "value": "X"}`` or ``{"value": 3}`` -> ``"X"`` / ``3``. Only the
+    exact ``{value}`` / ``{type, value}`` shape is unwrapped, so a real dict argument (a
+    ``roles`` map, whose keys are role names) is untouched."""
+    if isinstance(v, dict) and "value" in v and set(v.keys()) <= {"type", "value"}:
+        return v["value"]
+    return v
+
+
 def strip_null_filled_optionals(args: Any) -> tuple:
-    """Drop optional arguments the model set to a meaningless no-op sentinel.
+    """Sanitise tool arguments before dispatch: unwrap typed-envelope values, then drop
+    optional arguments the model set to a meaningless no-op sentinel or a null-like
+    placeholder ("NULL"/None). Both are malformed-call patterns a small model produces
+    (observed on real runs: gamma="NULL", eta_list=["NULL"], X_expr={"type":"string",
+    "value":"X"}), which would otherwise hard-error a run on schema validation.
 
     Returns (cleaned_args, dropped_names). Non-dict input is passed through.
     """
@@ -408,9 +430,13 @@ def strip_null_filled_optionals(args: Any) -> tuple:
     cleaned = {}
     dropped = []
     for k, v in args.items():
+        v = _unwrap_value(v)
         sentinels = _NULL_FILL_SENTINELS.get(k)
-        if sentinels is not None and any(
-            v == s and isinstance(v, type(s)) for s in sentinels
+        if sentinels is not None and (
+            any(v == s and isinstance(v, type(s)) for s in sentinels)
+            or _is_null_like(v)
+            or (isinstance(v, (list, tuple)) and len(v) > 0
+                and all(_is_null_like(x) for x in v))
         ):
             dropped.append(k)
             continue

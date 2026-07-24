@@ -48,7 +48,13 @@ or open the web UI (`./run_ui.sh`, or double-click `BRIER-Agent.command` on macO
 <http://localhost:7860>) and paste the prompt into the chat. Either way the agent identifies
 the right module, preprocesses and aligns the inputs, fits the transfer model, evaluates it,
 and reports the result. In the UI, an HTML report and a standalone `reproduce.R` are then
-written for you (by the harness, from the recorded fit) and their paths are shown.
+written for you (by the harness, from the recorded fit) and their paths are shown; see
+[`example_report.html`](example_report.html) in this folder for a rendered example (an HTML
+file: download and open it in a browser).
+
+These prompts are model-agnostic: they run on whatever model you have configured, the local
+Qwen 2.5-7B by default or any other open-weight or hosted model. The verification notes above
+were measured on the local 7B; a larger model only makes the harder prompt (3) more reliable.
 
 **Before sending, replace `/path/to/BRIER-Agent`** in the working directory named at the
 start of each prompt with the absolute path to your checkout: run `pwd` in the repository

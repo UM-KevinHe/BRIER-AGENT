@@ -31,10 +31,18 @@ if you already use Claude Desktop or OpenAI Codex, drive the **BRIER tools direc
 that client, with your own subscription as the model, for data on your machine or on a
 remote server over SSH.
 
+BRIER-Agent is **model-agnostic**: it drives any model served over an OpenAI-compatible
+endpoint that supports tool calling, chosen by just the endpoint and model name, with no
+change to the agent. It was developed and validated on **Qwen 2.5-7B**, a small open model
+that self-hosts on a single GPU, and the Docker self-host ships a **one-click Qwen 2.5-7B**
+setup. If you have more GPU, point the same local deployment at a larger open-weight model
+instead (any tool-calling model you can serve with vLLM); if you have no GPU, use a hosted
+API. Only the endpoint and model name change.
+
 | Path | Setup | LLM | Data | Best for | Docs |
 |---|---|---|---|---|---|
 | **Agent, external API** | no GPU + an API key (run directly, or Docker) | OpenAI / Together / any OpenAI-compatible | tool results transit the API; raw genotypes never leave | no GPU, or a stronger model | [Quick start](#quick-start), [DEPLOY.md](DEPLOY.md) |
-| **Agent, Docker self-host** | NVIDIA GPU + Docker | Qwen 2.5-7B (vLLM, in-container) | 100% local; no external call | PHI, offline or restricted networks, paper experiments | [DEPLOY.md](DEPLOY.md) |
+| **Agent, Docker self-host** | NVIDIA GPU + Docker | Qwen 2.5-7B (vLLM, in-container), or your own open-weight model | 100% local; no external call | PHI, offline or restricted networks, paper experiments | [DEPLOY.md](DEPLOY.md) |
 | **MCP + Claude/Codex, local** | R + BRIER + one setup script | your Claude or Codex subscription | file paths + summaries only | day-to-day use on your own machine | [mcp/docs/SETUP.md](mcp/docs/SETUP.md) |
 | **MCP + Claude/Codex, remote** | same, on the server (over SSH) | your Claude or Codex subscription | data and compute stay on the server | data on an HPC or lab server | [mcp/docs/REMOTE.md](mcp/docs/REMOTE.md) |
 
@@ -81,6 +89,13 @@ GPU), covered in [`DEPLOY.md`](DEPLOY.md).
 Full setup, the other deployments, and troubleshooting are in [`DEPLOY.md`](DEPLOY.md).
 
 ## Try it with example data
+
+For a preview of what the agent produces, see a rendered
+[example report](examples/example_report.html) (an HTML file: download and open it in a
+browser). It is the summary the harness writes after a fit: the data context, the selection
+summary (selected eta and lambda), the performance-vs-eta trajectory, a bootstrap
+performance comparison and feature-importance plots, and the embedded reproducibility
+script (`reproduce.R`).
 
 Small synthetic demo datasets and ready-to-run prompts ship under [`examples/`](examples/),
 derived from BRIER's own bundled example data. They cover the three common shapes: an

@@ -176,6 +176,33 @@ def test_non_dict_args_pass_through():
     print("null-fill: malformed args pass through untouched: OK")
 
 
+def test_null_string_placeholders_are_dropped():
+    """A model that writes the literal string "NULL" (or None) for an optional it means to
+    omit -- observed on a real run: brier_s with gamma="NULL", penalty="NULL",
+    eta_list=["NULL"], alpha=None, which pydantic could not parse and hard-errored."""
+    args, dropped = strip_null_filled_optionals({
+        "beta_external_expr": "p$beta", "gamma": "NULL", "penalty": "NULL",
+        "eta_list": ["NULL"], "alpha": None, "multi_method": "None",
+    })
+    assert sorted(dropped) == ["alpha", "eta_list", "gamma", "multi_method", "penalty"]
+    assert args == {"beta_external_expr": "p$beta"}
+    print("null-fill: 'NULL'/None placeholders for optionals are dropped: OK")
+
+
+def test_typed_envelope_values_are_unwrapped():
+    """Some models wrap a scalar arg as {'type':'string','value':X} instead of X, which
+    fails a string/number schema. Unwrap it; a real dict arg (roles) is untouched."""
+    args, dropped = strip_null_filled_optionals({
+        "X_expr": {"type": "string", "value": "p$X"},
+        "y_expr": {"value": "p$y"},
+        "roles": {"target_X_train": "x.txt.gz", "target_y_train": "y.txt.gz"},
+    })
+    assert dropped == []
+    assert args["X_expr"] == "p$X" and args["y_expr"] == "p$y"
+    assert args["roles"] == {"target_X_train": "x.txt.gz", "target_y_train": "y.txt.gz"}
+    print("null-fill: typed-envelope scalars unwrapped; a roles dict is untouched: OK")
+
+
 # ---------------------------------------------------------------------------
 # A SLIDING WINDOW IS NOT A BUDGET.
 #

@@ -435,7 +435,7 @@ def test_brierfull_needs_a_baseline_AND_a_comparator_fit():
 
 
 def test_a_shape_with_a_coefficient_vector_has_no_such_subchain():
-    """brier_i / brier_s score their external directly (score_external_prs). Only a RAW
+    """brier_i / brier_s score their external directly (score_external_models). Only a RAW
     cohort has to be fit, so the sub-chain must not fire for them."""
     assert _brierfull_comparators({"X_expr": "p$X",
                                    "beta_external_expr": "p$beta"}) == []

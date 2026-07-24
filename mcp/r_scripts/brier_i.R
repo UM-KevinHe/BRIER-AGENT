@@ -195,9 +195,15 @@ result <- tryCatch({
   # the predictors they name, that the external is not numerically zero, that a gaussian
   # y is on the same scale as X. Each of those failures otherwise produces a NUMBER, not
   # an error. See _common.R for what it deliberately CANNOT check (allele orientation).
+  # A deliberate no-transfer baseline pins eta.list to 0 (target-only LASSO, or a
+  # single-cohort external-only comparator in a brier_full comparison). It carries a
+  # zero placeholder external, which at eta=0 is a no-op; the contract's zero-external
+  # and rownames clauses must not refuse it (they still fire for a real transfer).
+  eta_all_zero <- !is.null(inp$eta_list) && length(unlist(inp$eta_list)) > 0L &&
+    all(as.numeric(unlist(inp$eta_list)) == 0)
   stop_on_contract_violations(
     validate_fit_inputs("brier_i", X = X, y = y, beta_external = beta_external,
-                        family = family),
+                        family = family, allow_zero_external = eta_all_zero),
     "brier_i"
   )
 

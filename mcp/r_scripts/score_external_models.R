@@ -1,5 +1,5 @@
 #!/usr/bin/env Rscript
-# score_external_prs.R - score a RAW external coefficient vector (a pretrained
+# score_external_models.R - score a RAW external coefficient vector (a pretrained
 # PRS) directly on a new (X, y) pair, without fitting a BRIER model.
 #
 # This is the EUR-only comparator: apply an external beta vector to a target
@@ -9,7 +9,7 @@
 # it is the deterministic "score the external PRS as-is" step.
 #
 # Called by mcp/server.py as:
-#   Rscript score_external_prs.R <input.json> <output.json>
+#   Rscript score_external_models.R <input.json> <output.json>
 #
 # input.json: {
 #   data_path:  "/path/to/prepared.rds",
@@ -152,7 +152,7 @@ result <- tryCatch({
 }, error = function(err) {
   make_error(
     msg = conditionMessage(err),
-    where = "score_external_prs.R",
+    where = "score_external_models.R",
     class = class(err)[1]
   )
 })

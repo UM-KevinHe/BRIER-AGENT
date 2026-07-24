@@ -72,6 +72,19 @@ ok(identical(r2[["external_coef_2"]], "b.gz"), "external_2 -> external_coef_2")
 r3 <- .normalize_roles(list(target_sumstats = "real.gz", gwas = "other.gz"))
 ok(identical(r3[["target_sumstats"]], "real.gz"), "canonical role not overwritten")
 
+# .role_path recovers a BARE filename (no extension) -- a common small-model slip. The
+# manuscript fixtures are .tsv.gz, which was missing from the retry list, so bare
+# "sumstats" for "sumstats.tsv.gz" errored and gpt-4o-mini looped.
+rp_dir <- file.path(tempdir(), "rolepath"); unlink(rp_dir, recursive = TRUE); dir.create(rp_dir)
+invisible(file.create(file.path(rp_dir, "sumstats.tsv.gz"), showWarnings = FALSE))
+invisible(file.create(file.path(rp_dir, "panel.csv.gz"),    showWarnings = FALSE))
+got_tsv <- .role_path(rp_dir, list(target_sumstats = "sumstats"), "target_sumstats")
+ok(basename(got_tsv) == "sumstats.tsv.gz", "bare name resolves to .tsv.gz")
+got_csv <- .role_path(rp_dir, list(x = "panel"), "x")
+ok(basename(got_csv) == "panel.csv.gz", "bare name resolves to .csv.gz")
+# a bare name with NO matching file still errors (never silently mis-resolves)
+errs(.role_path(rp_dir, list(x = "nope"), "x"), "not found", "bare name with no match errors")
+
 # NULL / empty-valued roles must be dropped (a small model nests non-role keys like ld_id:null
 # here; left in, they crash prep_auto with "argument is of length zero"). Mirrors the dispatch
 # backstop `roles <- Filter(function(v) !is.null(v) && length(v) > 0L, roles)`.
@@ -108,6 +121,28 @@ ok(length(b) == 2L, "numbered summary -> 2 instances")
 ok(identical(b[[1]]$ancestry, "EUR") && identical(b[[2]]$ancestry, "EAS"), "per-instance ancestry")
 ok(identical(b[[1]]$build, "hg38") && identical(b[[2]]$build, "hg38"), "build falls back to global")
 ok(identical(b[[2]]$roles$external_sumstats, "s2.gz"), "instance 2 keeps its own sumstats")
+
+# numbered summaries sharing ONE global external_ld_panel / external_snp_info (the common
+# Bucket B case: several EUR GWAS built off one EUR reference). The global role must fall
+# back to each numbered external, or the summary fit errors "needs external_ld_panel".
+bg <- .raw_external_instances(list(
+  external_sumstats_1 = "s1.gz", external_sumstats_2 = "s2.gz",
+  external_ld_panel = "shared_panel.gz", external_snp_info = "shared_snp.gz"),
+  "EUR", "hg38")
+ok(length(bg) == 2L, "numbered summaries + shared global panel -> 2 instances")
+ok(identical(bg[[1]]$roles$external_ld_panel, "shared_panel.gz") &&
+   identical(bg[[2]]$roles$external_ld_panel, "shared_panel.gz"),
+   "global external_ld_panel falls back to each numbered external")
+ok(identical(bg[[1]]$roles$external_snp_info, "shared_snp.gz") &&
+   identical(bg[[2]]$roles$external_snp_info, "shared_snp.gz"),
+   "global external_snp_info falls back to each numbered external")
+# a per-external panel still WINS over the global
+bw <- .raw_external_instances(list(
+  external_sumstats_1 = "s1.gz", external_ld_panel_1 = "own1.gz",
+  external_sumstats_2 = "s2.gz", external_ld_panel = "shared.gz"), "EUR", "hg38")
+ok(identical(bw[[1]]$roles$external_ld_panel, "own1.gz") &&
+   identical(bw[[2]]$roles$external_ld_panel, "shared.gz"),
+   "per-external panel wins; the other falls back to global")
 
 # a packed list under ONE key -> one instance per element, sharing the panel
 cc <- .raw_external_instances(list(external_sumstats = list("s1.gz", "s2.gz"),
@@ -197,6 +232,33 @@ d4 <- .discover_target_splits(bare, list(target_X_train = "height_AFR_X_training
                                          target_y_train = "height_AFR_pheno_training.txt.gz"))
 ok(is.null(d4$roles[["target_X_val"]]), "no val shipped -> nothing discovered")
 ok(length(d4$notes) == 0L, "no val shipped -> no note")
+
+# LITERAL-FILENAME fallback: a summary case whose LD panel carries no "training" token
+# and whose splits are named plainly (X_test.tsv.gz / y_test.tsv.gz). The anchor
+# substitution finds nothing, so the fallback must fill the splits by filename. (This is
+# the gpt-4o-mini summary-case loop: no X_test_expr hint -> invented `prepared$X_test`.)
+lit <- file.path(tempdir(), "litsplit"); unlink(lit, recursive = TRUE); dir.create(lit)
+for (f in c("sumstats.tsv.gz", "reference_panel.tsv.gz", "X_val.tsv.gz", "y_val.tsv.gz",
+            "X_test.tsv.gz", "y_test.tsv.gz"))
+  invisible(file.create(file.path(lit, f), showWarnings = FALSE))
+d5 <- .discover_target_splits(lit, list(target_sumstats = "sumstats.tsv.gz",
+                                        target_ld_panel = "reference_panel.tsv.gz"))
+ok(identical(d5$roles[["target_X_test"]], "X_test.tsv.gz"), "literal fallback: test X")
+ok(identical(d5$roles[["target_y_test"]], "y_test.tsv.gz"), "literal fallback: test y")
+ok(identical(d5$roles[["target_X_val"]],  "X_val.tsv.gz"),  "literal fallback: val X")
+
+# the fallback must NOT override an explicitly-passed role
+d6 <- .discover_target_splits(lit, list(target_sumstats = "sumstats.tsv.gz",
+                                        target_ld_panel = "reference_panel.tsv.gz",
+                                        target_X_test = "MINE.gz", target_y_test = "MINEY.gz"))
+ok(identical(d6$roles[["target_X_test"]], "MINE.gz"), "literal fallback: explicit test not overridden")
+
+# an AMBIGUOUS dir (two X_test candidates) must fill NOTHING, not guess
+amb <- file.path(tempdir(), "ambsplit"); unlink(amb, recursive = TRUE); dir.create(amb)
+for (f in c("X_test.tsv.gz", "cohort2_X_test.tsv.gz", "y_test.tsv.gz"))
+  invisible(file.create(file.path(amb, f), showWarnings = FALSE))
+d7 <- .discover_target_splits(amb, list(target_sumstats = "sumstats.tsv.gz"))
+ok(is.null(d7$roles[["target_X_test"]]), "ambiguous dir -> nothing filled")
 
 # =============================================================================
 section("external val discovery")
@@ -767,6 +829,20 @@ ok(.resolve_family("unknown", c(2.3, 4.1)) == "gaussian",
    "an unrecognized family is treated as unspecified and detected (gaussian here)")
 ok(.resolve_family(NULL, c(0, 1)) == "binomial",
    "a NULL family is detected")
+
+section("empty-role guard (.role_path)")
+# A model that emits an empty role value must get an ACTIONABLE message naming the role,
+# not the cryptic "zero-length 'path' argument" from the downstream file readers.
+errs(.role_path("/tmp", list(target_X_train = ""), "target_X_train"),
+     "empty or invalid value",
+     "an empty role value errors actionably, naming the role")
+errs(.role_path("/tmp", list(target_X_train = character(0)), "target_X_train"),
+     "empty or invalid value",
+     "a zero-length role value errors actionably")
+# A present, non-empty role is unaffected: it still errors on the MISSING FILE (not the
+# empty-value guard), so the guard does not swallow the normal not-found path.
+errs(.role_path("/tmp", list(target_X_train = "no_such_file_xyz.txt.gz"), "target_X_train"),
+     "Files in|not", "a non-empty but missing file still reports file-not-found, not empty")
 
 if (.fails == 0L) {
   cat(sprintf("prep_auto helpers: ALL %d CHECKS PASS\n", .checks))

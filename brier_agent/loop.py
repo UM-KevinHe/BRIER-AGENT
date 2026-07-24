@@ -50,6 +50,10 @@ class AgentResult:
     transcript: List[Dict[str, Any]] = field(default_factory=list)
     error: Optional[str] = None
     turns: int = 0
+    # Token usage accumulated across every LLM call this run (from each
+    # completion's `usage`), for cost accounting. 0 if the endpoint omits usage.
+    prompt_tokens: int = 0
+    completion_tokens: int = 0
 
 
 class BrierAgent:
@@ -112,6 +116,23 @@ class BrierAgent:
             env=config.server_env(),
         )
         self.system_prompt = system_prompt or _DEFAULT_SYSTEM_PROMPT
+        # Ablation layer toggles (all default ON via config). A layer is disabled only
+        # for a controlled experiment; ordinary runs keep every layer, so nothing here
+        # can be turned off by accident. The loop reads these to suppress a layer's
+        # nudges/injection; the state of each is logged once at run start.
+        self.enable_hooks = getattr(config, "enable_hooks", True)
+        self.enable_context_inject = getattr(config, "enable_context_inject", True)
+        self.enable_guards = getattr(config, "enable_guards", True)
+        self.enable_role_advisor = getattr(config, "enable_role_advisor", True)
+
+    def layer_states(self) -> Dict[str, bool]:
+        """The on/off state of every ablatable layer, for logging + the trace."""
+        return {
+            "hooks": self.enable_hooks,
+            "context_inject": self.enable_context_inject,
+            "guards": self.enable_guards,
+            "role_advisor": self.enable_role_advisor,
+        }
 
     # -- Tier 2 extension hooks (currently pass-through) -------------------
     #
@@ -142,7 +163,12 @@ class BrierAgent:
         Failures are non-fatal: if the pre-inspect errors, the original
         message is returned unchanged so the run still proceeds (the model
         can inspect itself).
+
+        Ablation: disabled by BRIER_CONTEXT_INJECT=0 -> pass-through, so the model must
+        inspect and reuse the real field names on its own.
         """
+        if not self.enable_context_inject:
+            return user_text
         if not data_path:
             return user_text
 
@@ -213,10 +239,22 @@ class BrierAgent:
             mcp_tools = await self.mcp.list_tools(session)
             all_openai_tools = tools_mod.mcp_tools_to_openai(mcp_tools)
 
-            # Tier 2 hook: scaffolded-context injection (pass-through now).
+            # Tier 2 hook: scaffolded-context injection (inspect-field names).
             user_content = await self._inject_scaffolded_context(
                 session, user_text, data_path
             )
+
+            # Role-advisor layer (T6): prepend the inferred module + canonical role
+            # mapping, worked out from the data file CONTENT. Independent of the
+            # context-injection layer (separate toggle). Best-effort: never break a run.
+            if self.enable_role_advisor and data_path:
+                try:
+                    from . import role_advisor
+                    hint = role_advisor.advise(data_path, user_text)
+                    if hint:
+                        user_content = hint + "\n\n" + user_content
+                except Exception:
+                    pass
 
             # Tier 2 hook: tool subsetting (pass-through now -> all tools).
             active_tools = self._select_tool_subset(all_openai_tools, None)
@@ -266,10 +304,15 @@ class BrierAgent:
             # representation of the cohort, hence a second consumer needing its own prep.
             inspected_files: set = set()
             used_files: set = set()
+            # Files present in the case dir, so the unused-representation nudge can fire
+            # even when the model went straight to prep_auto without inspecting first.
+            dir_files: set = _data_dir_basenames(data_path)
             unused_nudged = False
             final_text = ""
             error: Optional[str] = None
             turns = 0
+            total_prompt_tokens = 0
+            total_completion_tokens = 0
 
             for turn in range(self.config.max_turns):
                 turns = turn + 1
@@ -283,7 +326,15 @@ class BrierAgent:
                     tools=active_tools,
                     temperature=self.config.temperature,
                     max_tokens=self.config.max_tokens,
+                    seed=self.config.seed,
                 )
+                # Accumulate token usage (present on every real endpoint; absent on the
+                # stub). Guarded so a missing/partial usage object never breaks the run.
+                _u = getattr(completion, "usage", None)
+                if _u is not None:
+                    total_prompt_tokens += int(getattr(_u, "prompt_tokens", 0) or 0)
+                    total_completion_tokens += int(getattr(_u, "completion_tokens", 0) or 0)
+
                 choice = completion.choices[0]
                 msg = choice.message
                 tool_calls = getattr(msg, "tool_calls", None) or []
@@ -433,7 +484,7 @@ class BrierAgent:
                                          or result.get("shape") or "")
                                 cand_pri = 2
                                 unused = _unused_representation(
-                                    shape, inspected_files, used_files
+                                    shape, inspected_files | dir_files, used_files
                                 )
                                 if unused and not unused_nudged:
                                     # An input was handed over and never used. That is
@@ -534,7 +585,7 @@ class BrierAgent:
                             )
                         elif (
                             name == "brier_evaluate"
-                            and "score_external_prs" not in called_tools
+                            and "score_external_models" not in called_tools
                             and _prep_hints(last_prep).get("beta_external_expr")
                         ):
                             # test eval done, comparator still missing (only
@@ -599,6 +650,20 @@ class BrierAgent:
                         }
                     )
 
+                # --- Ablation layer gating (all default ON) -------------------
+                # Suppress a layer's nudges when it is disabled for an experiment. The
+                # priority band cleanly separates layers: guards are 8-9 (stall/repeat),
+                # continuation hooks + retry nudges are <8. When guards are off, the hard
+                # abort is also suppressed (the run then relies on the turn cap).
+                if followup is not None:
+                    if followup_pri >= 8:
+                        if not self.enable_guards:
+                            followup = None
+                    elif not self.enable_hooks:
+                        followup = None
+                if not self.enable_guards:
+                    stuck_repeat = None
+
                 # Inject the winning continuation nudge so the next turn issues
                 # the follow-on call instead of stopping with a summary.
                 if followup:
@@ -622,6 +687,8 @@ class BrierAgent:
                 transcript=messages,
                 error=error,
                 turns=turns,
+                prompt_tokens=total_prompt_tokens,
+                completion_tokens=total_completion_tokens,
             )
 
 
@@ -719,6 +786,21 @@ def _inspected_basenames(args: dict) -> set:
     return {_basename(p) for p in paths if p}
 
 
+def _data_dir_basenames(data_path: Optional[str]) -> set:
+    """Every file in the case's data directory (basenames). This lets the
+    unused-representation check fire even when the model skipped inspection and went
+    straight to prep_auto (a small model often preps one representation and stops). The
+    representation-marker and not-used filters keep it from firing spuriously. Empty when
+    data_path is missing or is not a directory."""
+    import os
+    try:
+        if data_path and os.path.isdir(data_path):
+            return {_basename(f) for f in os.listdir(data_path)}
+    except OSError:
+        pass
+    return set()
+
+
 def _role_basenames(args: dict) -> set:
     """Every file a prep call consumed, across scalar and packed-list roles."""
     out: set = set()
@@ -755,7 +837,7 @@ def _format_unused_input(files: List[str], shape: str) -> str:
     return (
         f"prep_auto succeeded for shape='{shape}'. Do NOT fit a model: this task is "
         "preprocessing only.\n"
-        f"But you INSPECTED {listed} and then never passed it to prep_auto. Every "
+        f"But the case ships {listed}, which you have NOT passed to prep_auto. Every "
         "file in the case is supplied for a reason, and an input you never used is "
         "usually a SECOND REPRESENTATION of the same cohort: the same samples "
         "described a different way. A different representation is consumed by a "
@@ -1146,7 +1228,7 @@ def _second_metric(parsed: Any, tool_results: List[Dict[str, Any]]) -> Optional[
     if sib is None or not _is_test_eval_args(parsed):
         return None
     for tr in tool_results:
-        if tr.get("tool") in ("brier_evaluate", "score_external_prs"):
+        if tr.get("tool") in ("brier_evaluate", "score_external_models"):
             a = tr.get("args") or {}
             r = tr.get("result")
             if (isinstance(a, dict)
@@ -1358,7 +1440,7 @@ def _format_selection_followup(args: dict, result: dict, last_prep) -> str:
     ]
     if sp["has_beta"]:
         lines.append(
-            'Then ALSO score the external-only comparator: score_external_prs '
+            'Then ALSO score the external-only comparator: score_external_models '
             f'with newx_expr="{sp["X_test"]}", newy_expr="{sp["y_test"]}", '
             f'beta_expr="{sp["beta"]}", criteria="{rep_crit}"{fam_arg}{dp_arg}. '
             "If the transfer model does NOT beat the external-only score, say so "
@@ -1495,8 +1577,12 @@ def _format_brierfull_comparator(c: dict, last_prep) -> str:
     ]
     if dp:
         lines.append(f'  data_path="{dp}"')
+    # The comparator brier_i must carry the outcome family: the server wrapper defaults
+    # family="gaussian" and always forwards it, so an OMITTED family is NOT recovered from
+    # the (brier_full) prepared object -- a binary y then trips the gaussian scale check.
+    fam_arg = f', family="{fam}"' if fam != "gaussian" else ""
     lines.append(f'  X_expr="{c["X"]}", y_expr="{c["y"]}", '
-                 f'beta_external_expr="{hints.get("beta_zero_expr", "")}", eta_list=[0]')
+                 f'beta_external_expr="{hints.get("beta_zero_expr", "")}", eta_list=[0]{fam_arg}')
     lines.append(f"Then {why}: call brier_i_selection with {how}.")
     if sp_test_x:
         lines.append(
@@ -1517,7 +1603,7 @@ def _format_evaluate_followup(args: dict, last_prep) -> str:
     return (
         "REMINDER: you have the transfer model's test metric but NOT yet the "
         "external-only comparator. Do NOT stop. Your NEXT action MUST be a tool "
-        "call to score_external_prs to score the external model as-is on the "
+        "call to score_external_models to score the external model as-is on the "
         "same test set:\n"
         f'  newx_expr="{sp["X_test"]}", newy_expr="{sp["y_test"]}", '
         f'beta_expr="{sp["beta"]}", criteria="{_report_criteria(fam)}"{fam_arg}{dp_arg}\n'

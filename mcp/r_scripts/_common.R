@@ -60,6 +60,27 @@ write_output <- function(result, path) {
 }
 
 
+# Tolerant boolean coercion. The MCP server has typed signatures, so a small
+# model's string "TRUE"/"FALSE" is coerced to a real logical BEFORE the R
+# script runs. But direct-to-R callers (the auto-generated reproduce_*.R, which
+# replays the recorded raw args, and any human running a script by hand) bypass
+# that coercion, so a string "TRUE" reaches the script and isTRUE("TRUE") is
+# FALSE -- silently flipping e.g. persist off. Coerce string/numeric forms here.
+# Returns `default` for NULL / empty / unrecognized so callers keep their own
+# default semantics.
+as_bool <- function(x, default = FALSE) {
+  if (is.null(x) || length(x) != 1L || (is.character(x) && !nzchar(x)) || is.na(x)) {
+    return(default)
+  }
+  if (is.logical(x)) return(isTRUE(x))
+  if (is.numeric(x)) return(x != 0)
+  s <- tolower(trimws(as.character(x)))
+  if (s %in% c("true", "t", "1", "yes", "y")) return(TRUE)
+  if (s %in% c("false", "f", "0", "no", "n")) return(FALSE)
+  default
+}
+
+
 # --------------------------------------------------------------------------
 # Data file loading
 # --------------------------------------------------------------------------
@@ -458,24 +479,29 @@ family_from_prepared <- function(env) {
 #                    unpenalized, e.g. demographic covariates to adjust for;
 #                    1 = penalized). Default is all-ones.
 add_penalty_args <- function(fit_args, inp, penalty_factor = NULL) {
-  if (!is.null(inp$alpha)) {
-    a <- as.numeric(inp$alpha)
+  # Read every knob with [[ ]] (exact), NEVER $ (partial): `inp[["penalty"]]` PARTIAL-MATCHES
+  # `inp[["penalty"]]_factor_expr` when no exact `penalty` key is present, so a call that passes
+  # only penalty_factor_expr (e.g. a replayed reproduce script, which omits the server's
+  # penalty default) would read the penalty.factor EXPRESSION as the penalty name and fail
+  # "penalty must be one of LASSO, SCAD, MCP". Same $-partial-match footgun as $X vs $XtX.
+  if (!is.null(inp[["alpha"]])) {
+    a <- as.numeric(inp[["alpha"]])
     if (!is.finite(a) || a <= 0 || a > 1) {
       stop("OMIT `alpha` entirely to use the BRIER default (LASSO, alpha=1); it is an OPTIONAL knob and you should not set it unless the user asked for elastic net. If you do set it, alpha must be in (0, 1]. BRIER rejects alpha <= 0.",
            call. = FALSE)
     }
     fit_args$alpha <- a
   }
-  if (!is.null(inp$penalty) && nzchar(inp$penalty)) {
-    pen <- toupper(inp$penalty)
+  if (!is.null(inp[["penalty"]]) && nzchar(inp[["penalty"]])) {
+    pen <- toupper(inp[["penalty"]])
     if (!pen %in% c("LASSO", "SCAD", "MCP")) {
       stop(sprintf("penalty must be one of LASSO, SCAD, MCP (got '%s').",
-                   inp$penalty), call. = FALSE)
+                   inp[["penalty"]]), call. = FALSE)
     }
     fit_args$penalty <- pen
   }
-  if (!is.null(inp$gamma)) {
-    fit_args$gamma <- as.numeric(inp$gamma)
+  if (!is.null(inp[["gamma"]])) {
+    fit_args$gamma <- as.numeric(inp[["gamma"]])
   }
   # An all-1 penalty.factor is BRIER's default (every predictor penalized); treat
   # it as omitted regardless of length, so a small model passing rep(1, k) with a
@@ -492,9 +518,9 @@ add_penalty_args <- function(fit_args, inp, penalty_factor = NULL) {
 # Echo the penalty knobs actually applied back into an output list, so the fit
 # metadata records exactly what was used (the BRIER default when a knob is unset).
 add_penalty_echo <- function(out, inp, penalty_factor = NULL) {
-  out$penalty_used <- if (!is.null(inp$penalty) && nzchar(inp$penalty)) toupper(inp$penalty) else "LASSO"
-  out$alpha_used <- if (!is.null(inp$alpha)) as.numeric(inp$alpha) else 1
-  if (!is.null(inp$gamma)) out$gamma_used <- as.numeric(inp$gamma)
+  out$penalty_used <- if (!is.null(inp[["penalty"]]) && nzchar(inp[["penalty"]])) toupper(inp[["penalty"]]) else "LASSO"
+  out$alpha_used <- if (!is.null(inp[["alpha"]])) as.numeric(inp[["alpha"]]) else 1
+  if (!is.null(inp[["gamma"]])) out$gamma_used <- as.numeric(inp[["gamma"]])
   out$penalty_factor_used <- !is.null(penalty_factor)
   out
 }
@@ -688,8 +714,21 @@ scale_regime_vector <- function(v) {
 # Returns a character vector of violations (empty = the contract holds).
 validate_fit_inputs <- function(shape, X = NULL, y = NULL, sumstats = NULL,
                                 XtX = NULL, beta_external = NULL,
-                                family = "gaussian") {
+                                family = "gaussian",
+                                allow_zero_external = FALSE) {
   v <- character(0)
+
+  # A DELIBERATE no-transfer baseline (eta.list == 0) uses an all-zero external as a
+  # placeholder: at eta=0 the external is multiplied by 0, so it contributes nothing and
+  # its alignment is irrelevant. This is exactly the brier_i(eta=0) target-only baseline
+  # and the single-cohort external-only comparators that a brier_full comparison drives.
+  # For that case the caller sets allow_zero_external=TRUE, which suppresses the
+  # zero-external "[degenerate]" clause and the rownames "[alignment]" clause (both of
+  # which correctly fire for a REAL transfer with a nonzero eta, where a zero or
+  # unaligned external silently degrades the fit). The shape (p+1 row-count) check stays.
+  .zero_ext <- !is.null(beta_external) &&
+    all(abs(as.numeric(beta_external)) < .EXTERNAL_ZERO_TOL)
+  .skip_ext_align_degen <- isTRUE(allow_zero_external) && .zero_ext
 
   # ---- predictor alignment. The count check that existed passes three objects in
   # DIFFERENT ORDER. Names are the only thing that can prove alignment, so an object
@@ -712,12 +751,12 @@ validate_fit_inputs <- function(shape, X = NULL, y = NULL, sumstats = NULL,
           nrow(beta_external), ncol(X) + 1L))
       } else {
         rn <- rownames(beta_external)
-        if (is.null(rn)) {
+        if (is.null(rn) && !.skip_ext_align_degen) {
           v <- c(v, paste(
             "[alignment] beta.external has no row names, so it cannot be proved to",
             "line up with X's columns. Set",
             "rownames(beta.external) <- c('(Intercept)', colnames(X))."))
-        } else if (!is.null(panel) && .name_mismatch(rn[-1], panel)) {
+        } else if (!is.null(rn) && !is.null(panel) && .name_mismatch(rn[-1], panel)) {
           v <- c(v, paste(
             "[alignment] beta.external's rows (after the intercept) do not match",
             "colnames(X) in ORDER. Row counts can match while every coefficient",
@@ -767,7 +806,7 @@ validate_fit_inputs <- function(shape, X = NULL, y = NULL, sumstats = NULL,
 
   # ---- the external must carry something. An all-zero external silently degenerates
   # the transfer to no-transfer, and eta becomes meaningless (it multiplies zero).
-  if (!is.null(beta_external)) {
+  if (!is.null(beta_external) && !.skip_ext_align_degen) {
     nz <- apply(as.matrix(beta_external), 2,
                 function(col) sum(abs(col) > .EXTERNAL_ZERO_TOL))
     if (all(nz == 0)) {

@@ -63,6 +63,7 @@ class LLMClient:
         temperature: float = 0.0,
         max_tokens: int = 2048,
         tool_choice: str = "auto",
+        seed: Optional[int] = None,
     ) -> Any:
         """Call chat-completions once and return the raw response object.
 
@@ -80,6 +81,8 @@ class LLMClient:
             "temperature": temperature,
             "max_tokens": max_tokens,
         }
+        if seed is not None:
+            kwargs["seed"] = seed
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice

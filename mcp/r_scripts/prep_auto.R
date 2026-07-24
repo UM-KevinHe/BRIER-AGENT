@@ -61,14 +61,27 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     return(NULL)
   }
   raw <- roles[[role]]
+  # An empty / zero-length role value would otherwise flow into file.path() and the file
+  # readers and fail with an unactionable "zero-length 'path' argument". Name the role
+  # instead, so the model (or user) can supply a filename. Seen on real runs where a model
+  # emits role="" (or a zero-length value); a clear message lets it self-correct.
+  if (!is.character(raw) || length(raw) != 1L || !nzchar(raw)) {
+    stop(sprintf(paste0("role '%s' has an empty or invalid value; provide a single ",
+                        "filename or absolute path for it (e.g. %s=\"height_AFR_X_training.txt.gz\")."),
+                 role, role), call. = FALSE)
+  }
   is_abs <- grepl("^(/|[A-Za-z]:[\\\\/]|~)", raw)
   path <- if (is_abs) raw else file.path(data_dir, raw)
   if (!file.exists(path)) {
     # Tolerate a filename given WITHOUT its extension (a common small-model slip,
     # e.g. "height_AFR_LD" for "height_AFR_LD.rds"): try known extensions and use
     # the first existing match.
-    cands <- paste0(path, c(".txt.gz", ".rds", ".rda", ".RData", ".csv",
-                            ".tsv", ".txt", ".bgz", ".gz"))
+    # Double extensions (.tsv.gz / .csv.gz / .txt.gz) FIRST: a bare "sumstats" for
+    # "sumstats.tsv.gz" must not stop at "sumstats.gz" (which does not exist) -- and
+    # ".tsv.gz" was missing entirely, so the manuscript's .tsv.gz fixtures could not be
+    # recovered from a bare name (gpt-4o-mini passed "sumstats" and prep_auto errored).
+    cands <- paste0(path, c(".txt.gz", ".tsv.gz", ".csv.gz", ".rds", ".rda", ".RData",
+                            ".csv", ".tsv", ".txt", ".bgz", ".gz"))
     hit <- cands[file.exists(cands)]
     if (length(hit) >= 1L) {
       path <- hit[1L]
@@ -1708,9 +1721,15 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
     Xk <- roles[[sprintf("external_X_%d", k)]]
     yk <- roles[[sprintf("external_y_%d", k)]]
     if (!is.null(sk)) {
+      # A SHARED external reference panel / snp_info falls back to the GLOBAL role when the
+      # numbered one is absent. Several summary externals built off ONE reference panel is
+      # the common case (e.g. two EUR GWAS + one EUR reference), so the caller should not
+      # have to duplicate external_ld_panel_1/_2 pointing at the same file. Mirrors the
+      # ancestry/build global fallback that add_summary already applies.
+      or_global <- function(v, g) if (!is.null(v)) v else roles[[g]]
       add_summary(
-        sk, roles[[sprintf("external_ld_panel_%d", k)]],
-        roles[[sprintf("external_snp_info_%d", k)]],
+        sk, or_global(roles[[sprintf("external_ld_panel_%d", k)]], "external_ld_panel"),
+        or_global(roles[[sprintf("external_snp_info_%d", k)]], "external_snp_info"),
         roles[[sprintf("external_X_val_%d", k)]],
         roles[[sprintf("external_y_val_%d", k)]],
         roles[[sprintf("external_ld_ancestry_%d", k)]],
@@ -2112,6 +2131,32 @@ if (!requireNamespace("BRIER", quietly = TRUE)) {
        c("validation", "_val"), "validation")
   fill("target_X_test", "target_y_test", c("training", "_train"),
        c("testing", "_test"), "test")
+
+  # LITERAL-FILENAME fallback. The anchor substitution above only fires when the
+  # split files are NAMED after the training anchor (height_AFR_X_training ->
+  # _validation / _testing). A fixture can instead ship the splits under plain names
+  # (X_test.tsv.gz / y_test.tsv.gz) with an LD reference panel that carries no
+  # "training" token -- then the substitution finds nothing and an omitted role
+  # silently falls back to an IC, and the model, left with no X_test_expr hint,
+  # invents `prepared$X_test` and loops. Observed on gpt-4o-mini for the summary
+  # cases. So when a val/test role is STILL absent, look for a canonically-named
+  # split pair directly in the data dir. Require EXACTLY ONE X and ONE y match, so an
+  # ambiguous dir fills nothing rather than guessing; only fills an ABSENT role, and
+  # only when BOTH siblings exist -- a genuine no-split case still finds nothing.
+  lit_fill <- function(xr, yr, xpat, ypat, label) {
+    if (!is.null(roles[[xr]]) || !is.null(roles[[yr]])) return(invisible())
+    xs <- list.files(data_dir, pattern = xpat, ignore.case = TRUE)
+    ys <- list.files(data_dir, pattern = ypat, ignore.case = TRUE)
+    if (length(xs) == 1L && length(ys) == 1L) {
+      roles[[xr]] <<- xs; roles[[yr]] <<- ys
+      notes <<- c(notes, sprintf(
+        "auto-discovered target %s split (%s, %s) by filename", label, xs, ys))
+    }
+  }
+  lit_fill("target_X_val", "target_y_val",
+           "(^|[^a-z])x[_.]?val", "(^|[^a-z])(y[_.]?val|pheno[_.]?val)", "validation")
+  lit_fill("target_X_test", "target_y_test",
+           "(^|[^a-z])x[_.]?test", "(^|[^a-z])(y[_.]?test|pheno[_.]?test)", "test")
   list(roles = roles, notes = notes)
 }
 
@@ -3161,8 +3206,8 @@ result <- tryCatch({
   # any nested param out of roles, preferring an explicit top-level value, then drop
   # it from roles so it is never mistaken for a file path.
   .nested <- function(key) if (!is.null(roles[[key]])) roles[[key]] else NULL
-  standardize <- if (!is.null(inp$standardize)) isTRUE(inp$standardize)
-                 else isTRUE(.nested("standardize"))
+  standardize <- if (!is.null(inp$standardize)) as_bool(inp$standardize)
+                 else as_bool(.nested("standardize"))
   standardize_method <- if (!is.null(inp$standardize_method)) inp$standardize_method
                         else if (!is.null(.nested("standardize_method"))) .nested("standardize_method")
                         else "sd"
@@ -3243,7 +3288,7 @@ result <- tryCatch({
   roles[["external_ld_build"]] <- NULL
   if (is.null(ext_ld_ancestry) || !nzchar(ext_ld_ancestry)) ext_ld_ancestry <- ld_ancestry
   if (is.null(ext_ld_build) || !nzchar(ext_ld_build)) ext_ld_build <- ld_build
-  persist <- is.null(inp$persist) || isTRUE(inp$persist)
+  persist <- is.null(inp$persist) || as_bool(inp$persist, default = TRUE)
   # Where to persist the assembled object. Explicit out_dir wins; otherwise use
   # BRIER_MCP_OUT_DIR when set (so a caller can keep a read-only data_dir clean),
   # falling back to data_dir.

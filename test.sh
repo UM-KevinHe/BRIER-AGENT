@@ -41,6 +41,8 @@ run_r "GENERIC (non-genotype) predictors"         test_generic_predictors.R "eta
 run_r "strand ambiguity"                          test_ambiguity.R
 run_r "the aligner vs preprocessI/S (skips without data)" test_aligner_differential.R
 run_r "the eta grid, per external source"         test_eta_grid.R
+run_r "penalty args (exact key, no partial match)" test_penalty_args.R
+run_r "as_bool (string \"TRUE\" from a reproduce replay)" test_as_bool.R
 run_r "the prepared-object contract"              test_contract.R
 run_r "multi.method, resolved from M"             test_multi_method.R
 

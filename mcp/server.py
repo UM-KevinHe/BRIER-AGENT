@@ -25,7 +25,7 @@ Current tool surface (v2.5.0):
   * cal_ld                 - build an LD matrix from a reference panel.
   * brier_predict          - predict from any cached BRIER fit or selection.
   * brier_evaluate         - score any cached BRIER fit on a new (X, y) pair.
-  * score_external_prs      - score a raw external coef vector directly on (X, y);
+  * score_external_models      - score a raw external coef vector directly on (X, y);
                              the external-only comparator, no fitting.
   * brier_plot_eta         - validation criterion vs eta; auto-heatmap for M=2.
   * brier_plot_box         - bootstrap performance comparison (target / external / integrated).
@@ -288,6 +288,16 @@ def _validate_expr(expr_str: Optional[str], param_name: str) -> Optional[str]:
 # cap is an OPERATOR knob with no modelling meaning, so the model must not be able to
 # reach it; operators override it with BRIER_MCP_PREP_TIMEOUT.
 _PREP_AUTO_TIMEOUT_S = int(os.environ.get("BRIER_MCP_PREP_TIMEOUT", "1800"))
+
+# BRIERfull pools two individual-level cohorts and fits a joint penalized model, which at
+# realistic sizes (e.g. 5162 x 10000) legitimately runs well past the generic 600s cap.
+# Like the prep_auto cap, this is an OPERATOR knob (a wall-clock ceiling with no modelling
+# meaning), so it is an ENV VAR, never a tool parameter -- a small model set an exposed
+# timeout to nonsense (0, 3600) and broke every call. Applies to the pooled fit + its
+# selection only; the light per-cohort comparators stay on the 600s default. When raising
+# this, also raise BRIER_MCP_CALL_TIMEOUT (transport) above it, or the transport tears the
+# call down first.
+_FIT_TIMEOUT_S = int(os.environ.get("BRIER_MCP_FIT_TIMEOUT", "600"))
 
 
 def _run_r(script_name: str, payload: dict,
@@ -2603,7 +2613,7 @@ def brier_i(
     beta_external_expr: str,
     data_path: Optional[str] = None,
     data_paths: Optional[list] = None,
-    family: str = "gaussian",
+    family: str = "",  # "" => recover from prepared object (binomial/poisson auto-detected); explicit value wins
     eta_list: Optional[list] = None,
     eta_floor: float = 0.1,
     eta_ceiling: float = 10.0,
@@ -2654,7 +2664,10 @@ def brier_i(
         y_expr: R expression that returns the target outcome vector.
         beta_external_expr: R expression that returns the external
             coefficient matrix of shape (p+1) x M.
-        family: One of "gaussian" (default), "binomial", "poisson".
+        family: One of "gaussian", "binomial", "poisson". OMIT it (default "")
+            to recover the family from the prepared object (prep_auto records the
+            auto-detected outcome family, so a binary/count outcome is fit with the
+            right link even when the caller says nothing); an explicit value wins.
             ALWAYS pass explicitly when the outcome is binary or count;
             the default is a silent-failure trap.
         eta_list: Optional numeric vector of integration weights to
@@ -2744,7 +2757,7 @@ def brier_i_cv(
     X_expr: str,
     y_expr: str,
     beta_external_expr: str,
-    family: str = "gaussian",
+    family: str = "",  # "" => recover from prepared object (binomial/poisson auto-detected); explicit value wins
     eta_list: Optional[list] = None,
     eta_floor: float = 0.1,
     eta_ceiling: float = 10.0,
@@ -2889,7 +2902,7 @@ def brier_full(
     X_expr: str,
     y_expr: str,
     cohort_expr: str,
-    family: str = "gaussian",
+    family: str = "",  # "" => recover from prepared object (binomial/poisson auto-detected); explicit value wins
     eta_list: Optional[list] = None,
     eta_floor: float = 0.1,
     eta_ceiling: float = 10.0,
@@ -2953,7 +2966,10 @@ def brier_full(
             vector.
         cohort_expr: R expression that evaluates to the integer cohort
             indicator vector (0=target, 1+=external).
-        family: One of "gaussian" (default), "binomial", "poisson".
+        family: One of "gaussian", "binomial", "poisson". OMIT it (default "")
+            to recover the family from the prepared object (prep_auto records the
+            auto-detected outcome family, so a binary/count outcome is fit with the
+            right link even when the caller says nothing); an explicit value wins.
         eta_list: Optional numeric vector of integration weights.
             Default is the recommended log-spaced grid:
             c(0, exp(seq(log(0.1), log(10), length.out = 20))).
@@ -3009,7 +3025,7 @@ def brier_full(
         "penalty_factor_expr": penalty_factor_expr,
         "trace": trace,
         **_penalty_payload(alpha, penalty, gamma),
-    })
+    }, timeout_s=_FIT_TIMEOUT_S)
 
 
 @mcp.tool()
@@ -3074,7 +3090,7 @@ def brier_full_selection(
         "y_val_expr": y_val_expr,
         "data_path": dp_legacy,
         "data_paths": dp_list,
-    }))
+    }, timeout_s=_FIT_TIMEOUT_S))
 
 
 # --------------------------------------------------------------------------
@@ -3189,7 +3205,7 @@ def cal_ld(
 def brier_s(
     sumstats_expr: str,
     beta_external_expr: str,
-    family: str = "gaussian",
+    family: str = "",  # "" => recover from prepared object (binomial/poisson auto-detected); explicit value wins
     ld_id: Optional[str] = None,
     XtX_expr: Optional[str] = None,
     multi_method: str = "auto",
@@ -3269,7 +3285,10 @@ def brier_s(
         sumstats_expr: R expression for the sumstats data frame.
         beta_external_expr: R expression for the external coefficients
             matrix (p x M, NO intercept row).
-        family: One of "gaussian" (default), "binomial", "poisson".
+        family: One of "gaussian", "binomial", "poisson". OMIT it (default "")
+            to recover the family from the prepared object (prep_auto records the
+            auto-detected outcome family, so a binary/count outcome is fit with the
+            right link even when the caller says nothing); an explicit value wins.
         ld_id: ID of a cached LD object from cal_ld. Preferred.
         XtX_expr: Alternative to ld_id; R expression for the LD matrix
             directly.
@@ -3852,7 +3871,7 @@ def brier_evaluate(
 
 
 @mcp.tool()
-def score_external_prs(
+def score_external_models(
     newx_expr: str,
     newy_expr: str,
     beta_expr: str,
@@ -3902,12 +3921,12 @@ def score_external_prs(
     if err:
         return {"status": "error", "message": err,
                 "class": "DenylistViolation",
-                "where": "server.py:score_external_prs"}
+                "where": "server.py:score_external_models"}
     if family not in ("gaussian", "binomial", "poisson"):
         return {"status": "error",
                 "message": "family must be 'gaussian', 'binomial', or 'poisson'",
                 "class": "ValueError",
-                "where": "server.py:score_external_prs"}
+                "where": "server.py:score_external_models"}
 
     dp_legacy, dp_list = _normalize_data_paths(data_path, data_paths)
     payload = {
@@ -3920,7 +3939,7 @@ def score_external_prs(
         "family": family,
         "has_intercept": has_intercept,
     }
-    return _run_r("score_external_prs.R", payload)
+    return _run_r("score_external_models.R", payload)
 
 
 # --------------------------------------------------------------------------
