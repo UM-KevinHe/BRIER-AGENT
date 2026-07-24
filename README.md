@@ -162,3 +162,9 @@ Please report issues or unexpected behavior on the GitHub repository, or contact
 
 For the underlying BRIER method and R package, see
 [UM-KevinHe/BRIER](https://github.com/UM-KevinHe/BRIER).
+
+## License
+
+BRIER-Agent is released under the GNU General Public License v3.0 (see
+[`LICENSE`](LICENSE)). Copyright (C) 2026 Ruiwen Zhou and the Kevin He Lab,
+University of Michigan.
